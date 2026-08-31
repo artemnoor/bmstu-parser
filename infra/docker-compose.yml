@@ -1,18 +1,17 @@
 services:
-  bmstu-api:
+  university-api:
     build:
       context: ../backend
       dockerfile: Dockerfile
     ports:
       - "8000:8000"
     environment:
-      BMSTU_RESULT_DIR: /app/data/result
-      BMSTU_API_HOST: 0.0.0.0
-      BMSTU_API_PORT: 8000
-      BMSTU_ENV: ${BMSTU_ENV:-development}
-      BMSTU_API_KEY: ${BMSTU_API_KEY:-}
-      BMSTU_CORS_ORIGINS: ${BMSTU_CORS_ORIGINS:-}
-      BMSTU_DATA_ENGINE: ${BMSTU_DATA_ENGINE:-duckdb}
+      UNIVERSITY_RESULT_DIR: /app/data/result
+      UNIVERSITY_API_HOST: 0.0.0.0
+      UNIVERSITY_API_PORT: 8000
+      UNIVERSITY_ENV: ${UNIVERSITY_ENV:-development}
+      UNIVERSITY_API_KEY: ${UNIVERSITY_API_KEY:-}
+      UNIVERSITY_CORS_ORIGINS: ${UNIVERSITY_CORS_ORIGINS:-}
     volumes:
       - ../data/result:/app/data/result
     healthcheck:
@@ -21,10 +20,10 @@ services:
       timeout: 5s
       retries: 5
 
-  bmstu-frontend:
+  university-frontend:
     image: nginx:1.27-alpine
     depends_on:
-      bmstu-api:
+      university-api:
         condition: service_healthy
     ports:
       - "5173:80"

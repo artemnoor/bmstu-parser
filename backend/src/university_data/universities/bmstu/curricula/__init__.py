@@ -1,0 +1,1 @@
+"""BMSTU curriculum adapter seam."""

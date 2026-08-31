@@ -1,0 +1,18 @@
+university_id: bmstu
+display_name: МГТУ им. Н. Э. Баумана
+capabilities:
+  programs: true
+  curricula: true
+  faculties: true
+  departments: true
+  admission: true
+  tuition: true
+  teachers: false
+resolvers:
+  total_hours:
+    - direct
+    - sum_components
+    - credits_to_hours
+settings:
+  source_page: https://mirror.bmstu.ru/bachelor/majors
+  source_format: mirror_api

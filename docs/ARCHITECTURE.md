@@ -1,4 +1,14 @@
-# Архитектура BMSTU-парсера
+# Архитектура University Data Platform
+
+BMSTU — первый plugin, а не граница всей системы. Публичная композиция
+находится в `university_data`; конкретные URL, mappings и provider DTO
+расположены в `universities/bmstu`. FakeUniversity использует другой набор
+источников (JSON/XLSX/teachers) и поэтому проверяет реальную глубину core.
+
+```text
+Provider → typed Source DTO → core normalization → resolver chain
+        → canonical domain → ontology / quality → namespaced storage → API
+```
 
 ## Целевой принцип
 
@@ -67,7 +77,7 @@ Mirror API                         Yandex public resources
 
 ## Идентичность и provenance
 
-Каждый объект получает детерминированный ID вида `bmstu:<type>:<hash>`, вычисленный из устойчивого исходного ключа. Читаемые `slug`, код и название сохраняются отдельными свойствами. В объекте и связи хранится provenance: URL страницы, URL API, время получения и путь raw-снимка.
+Каждый объект получает детерминированный ID вида `university:<university_id>:<type>:<hash>`, вычисленный из устойчивого исходного ключа. Читаемые `slug`, код и название сохраняются отдельными свойствами. В объекте и связи хранится provenance: URL страницы, URL API, время получения и путь raw-снимка.
 
 Такой подход соответствует идее метаданных свойств: у свойства должны быть стабильная идентичность, понятное имя и описание; см. [официальную документацию Palantir по property metadata](https://www.palantir.com/docs/foundry/object-link-types/property-metadata). Для обновления данных можно сравнивать raw-снимки и канонические ID, не привязывая downstream-код к порядку элементов ответа.
 
@@ -90,7 +100,8 @@ Mirror API                         Yandex public resources
 ```text
 BMSTU/
 ├── backend/
-│   ├── src/bmstu_parser/  # ingestion, balancing, ontology, quality, API
+│   ├── src/university_data/ # core, domain, sources, plugins, API
+│   ├── src/bmstu_parser/    # временный compatibility facade
 │   ├── tests/             # backend unit/integration tests
 │   ├── pyproject.toml     # isolated Python package
 │   └── Dockerfile
@@ -119,6 +130,24 @@ DuckDB reader по умолчанию или явный построчный `fi
 восстановлением прерванных операций, а `InMemoryJobStore` используется для
 лёгких тестов. `ScrapePipeline` принимает API, normalizer, resolver factory и
 ontology builder через constructor injection.
+
+## Plugin contract и capabilities
+
+Static registry регистрирует `BmstuPlugin` и `FakeUniversityPlugin`. Каждый
+plugin объявляет `UniversityCapabilities`, typed providers и strict YAML
+config. Core обращается к ним через `UniversityPlugin`/`UniversityProviders`;
+проверок `if university == ...` в нейтральном слое нет.
+
+Capability, которую источник не поддерживает, пропускается без искусственных
+нулей, попадает в quality как `not_supported`, а scoped API возвращает
+`404 capability_unavailable`. Для опубликованного значения `field_meta`
+содержит `status=published`; для вычисленного — `derived` и имя resolver;
+для отсутствующего — `not_published`.
+
+ID имеют форму `university:<university_id>:<entity_type>:<hash>`. Hash строится
+из устойчивого business key; позиция массива не используется, кроме
+детерминированного разрешения настоящей коллизии. `id_aliases.json` связывает
+исторические BMSTU IDs с новыми.
 
 ## Отдельный слой учебных планов
 
@@ -182,13 +211,13 @@ quality_gate           expectations, reconciliation, referential integrity
 API / web projections   read-only datasets and controlled operations
 ```
 
-Каждый исполняемый этап теперь пишет `data/result/pipeline_runs/<run_id>.json`. В манифесте фиксируются статус, время, входные и выходные артефакты, размер, SHA-256, ключевые счётчики и результат quality gate; `latest.json` указывает последний запуск. Это делает запуск воспроизводимым и позволяет отличать «файл существует» от «файл получен конкретным преобразованием».
+Каждый исполняемый этап теперь пишет `data/result/{university_id}/pipeline_runs/<run_id>.json`. В манифесте фиксируются статус, время, входные и выходные артефакты, размер, SHA-256, ключевые счётчики и результат quality gate; `latest.json` указывает последний запуск. Это делает запуск воспроизводимым и позволяет отличать «файл существует» от «файл получен конкретным преобразованием».
 
 Извлечение документов дополнительно ведёт атомарный checkpoint ledger. Результат переиспользуется только при совпадении fingerprint файла, локальной ссылки, ожидаемых metadata и backend'а. Запись нового JSON/CSV проходит через соседний временный файл с заменой назначения после успешного закрытия; сбой не оставляет частично записанный dataset.
 
 `quality_gate` разделяет блокирующие ошибки и исходные gaps. Например, отсутствие семестровой раскладки у альтернативного электива не подменяется нулём: исходная общая нагрузка сохраняется, gap попадает в отчёт, а строгие проверки останавливают запуск при потере таблиц, строк, ячеек, контролей или ссылок. Дополнительно проверяется соответствие заявленных `document/table` counts фактически materialized rows/cells и точное покрытие detail-запросами всех элементов исходного списка.
 
-История запусков доступна через `GET /api/v1/runs` и `GET /api/v1/runs/{run_id}`. Это локальный control-plane проекта, а не попытка имитировать внутренние сервисы Foundry; для production остаются отдельные задачи: постоянное хранилище build history, расписание, внешние метрики и авторизация пользователей.
+Статус фонового запуска доступен через `GET /api/v1/universities/{university_id}/operations/{operation_id}`. Это локальный control-plane проекта, а не попытка имитировать внутренние сервисы Foundry; для production остаются отдельные задачи: расписание, внешние метрики и авторизация пользователей.
 
 Для инженерного quality gate репозитория CI запускает Ruff lint/format,
 проверку типов для изменяемого ядра, pytest с покрытием критических модулей,

@@ -1,53 +1,29 @@
-# BMSTU Data Console
+# Web console
 
-`frontend/` — независимый статический frontend для BMSTU Education Data API.
-В нём нет Python-кода, базы данных или копии datasets: браузер получает
-данные через REST API backend.
+Frontend — отдельный статический клиент. Он не читает файлы данных и работает
+только через scoped University Data API.
 
-## Запуск
-
-Сначала запустите API из каталога `BMSTU\backend`:
+## Local run
 
 ```powershell
-$env:BMSTU_CORS_ORIGINS = "http://127.0.0.1:5173,http://localhost:5173"
-cd BMSTU\backend
-python -m bmstu_parser api --result ..\data\result --host 127.0.0.1 --port 8000
-```
+# terminal 1
+cd backend
+university-api --result ..\data\result --host 127.0.0.1 --port 8000
 
-Во втором терминале, из корня репозитория `BMSTU`, запустите static server:
-
-```powershell
-cd BMSTU
+# terminal 2
+cd ..
 python -m http.server 5173 --directory frontend
 ```
 
-После этого откройте <http://127.0.0.1:5173>.
+Откройте `http://127.0.0.1:5173`. Selector университета загружает registry,
+после переключения UI использует `/api/v1/universities/{university_id}/...`.
+Разделы и capability badges учитывают `not_supported`; отсутствие
+опубликованного поля не отображается как искусственный ноль.
 
-Адрес API можно изменить прямо в поле `API endpoint` в верхней панели.
-Значение сохраняется в `localStorage` браузера.
+Для frontend-тестов:
 
-## Что показывает панель
-
-- состояние API и quality gate по всем отчётам;
-- направления подготовки и образовательные программы;
-- постраничный список дисциплин и учебных планов;
-- каталог разрешённых CSV/JSONL datasets;
-- детали направления, программы или учебного плана;
-- ссылку на исходный PDF учебного плана;
-- постановку поддерживаемой операции в очередь API и наблюдение за её статусом.
-
-## Принцип интеграции
-
-```text
-frontend/index.html + api-client.js + app.js + styles.css
-                │ fetch()
-                ▼
-http://127.0.0.1:8000
-                │
-                ▼
-BMSTU/data/result
+```powershell
+cd frontend
+npm ci
+npx playwright test
 ```
-
-Frontend не изменяет raw-файлы напрямую и не интерпретирует PDF
-самостоятельно. Изменяющие действия проходят через контролируемые операции
-backend-сервиса.

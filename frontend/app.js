@@ -1,5 +1,6 @@
 (() => {
-  const STORAGE_KEY = 'bmstu-api-endpoint';
+  const STORAGE_KEY = 'university-data-api-endpoint';
+  const UNIVERSITY_KEY = 'university-data-university';
   const navigation = {
     overview: 'Операционный обзор',
     majors: 'Направления подготовки',
@@ -14,6 +15,9 @@
     loading: false,
     error: '',
     apiBase: localStorage.getItem(STORAGE_KEY) || defaultApiBase(),
+    universityId: localStorage.getItem(UNIVERSITY_KEY) || 'bmstu',
+    universities: [],
+    capabilities: {},
     health: null,
     catalog: null,
     majors: [],
@@ -25,6 +29,7 @@
 
   const refs = {
     endpoint: document.getElementById('api-endpoint'),
+    university: document.getElementById('university-select'),
     refresh: document.getElementById('refresh-button'),
     pageTitle: document.getElementById('page-title'),
     view: document.getElementById('app-view'),
@@ -36,7 +41,7 @@
     drawerClose: document.getElementById('drawer-close'),
     backdrop: document.getElementById('drawer-backdrop')
   };
-  const apiClient = window.BmstuApiClient.create(() => state.apiBase);
+  const apiClient = window.UniversityApiClient.create(() => state.apiBase);
 
   function defaultApiBase() {
     if (window.location.protocol === 'http:' || window.location.protocol === 'https:') {
@@ -81,6 +86,20 @@
 
   function apiUrl(path) {
     return `${state.apiBase.replace(/\/$/, '')}${path}`;
+  }
+
+  function scoped(path) {
+    return `/api/v1/universities/${encodeURIComponent(state.universityId)}${path}`;
+  }
+
+  function selectedUniversity() {
+    return state.universities.find((item) => item.university_id === state.universityId) || state.universities[0];
+  }
+
+  function renderUniversitySelector() {
+    if (!refs.university) return;
+    refs.university.innerHTML = state.universities.map((item) => `<option value="${escapeHtml(item.university_id)}">${escapeHtml(item.display_name)}</option>`).join('');
+    refs.university.value = state.universityId;
   }
 
   function setAlert(message = '') {
@@ -142,7 +161,7 @@
     const operation = state.operation;
     return `<div class="view-stack">
       <section class="hero-panel">
-        <div><p class="eyebrow">CANONICAL DATA LAYER</p><h2>Единая точка наблюдения за образовательными данными</h2><p>Панель читает проверенные datasets из BMSTU API и показывает их состояние, структуру и связанные учебные планы.</p></div>
+        <div><p class="eyebrow">CANONICAL DATA LAYER</p><h2>Единая точка наблюдения за образовательными данными</h2><p>Панель читает scoped datasets выбранного университета и показывает их состояние, структуру и связанные учебные планы.</p><div class="capability-list">${Object.entries(state.capabilities).map(([name, supported]) => `<span class="status-pill ${supported ? 'is-ok' : 'is-warn'}">${escapeHtml(name)} · ${supported ? 'доступно' : 'не поддерживается'}</span>`).join('')}</div></div>
         <div class="hero-state ${state.health?.status === 'ok' ? 'is-online' : 'is-muted'}"><span></span>${state.health?.status === 'ok' ? 'API online' : 'API недоступен'}<small>${state.health ? `Обновлено ${new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}` : 'Ожидание подключения'}</small></div>
       </section>
       <section class="metrics-grid" aria-label="Ключевые показатели">
@@ -198,7 +217,7 @@
     document.querySelectorAll('.nav-item').forEach((item) => item.classList.toggle('is-active', item.dataset.view === state.view));
     refs.endpoint.value = state.apiBase;
     if (state.loading && !state.health) {
-      refs.view.innerHTML = `<div class="loading-state"><span class="spinner"></span><p>Подключение к BMSTU API…</p></div>`;
+      refs.view.innerHTML = `<div class="loading-state"><span class="spinner"></span><p>Подключение к University Data API…</p></div>`;
       return;
     }
     refs.view.innerHTML = ({ overview: renderOverview, majors: renderMajors, programs: renderPrograms, plans: renderPlans, disciplines: renderDisciplines, datasets: renderDatasets })[state.view]();
@@ -211,13 +230,20 @@
     setAlert('');
     render();
     try {
+      const universities = await apiClient.get('/api/v1/universities');
+      state.universities = universities || [];
+      const available = selectedUniversity();
+      if (!available) throw new Error('Зарегистрированные университеты не найдены');
+      state.universityId = available.university_id;
+      localStorage.setItem(UNIVERSITY_KEY, state.universityId);
+      renderUniversitySelector();
       const [health, catalog, majors, programs, plans, disciplines] = await Promise.all([
         apiClient.get('/health'),
-        apiClient.get('/api/v1/catalog'),
-        apiClient.get('/api/v1/majors?limit=500'),
-        apiClient.get('/api/v1/programs?limit=500'),
-        apiClient.get('/api/v1/study-plans/documents?limit=500'),
-        apiClient.get('/api/v1/datasets/study_plan_disciplines/rows?limit=500')
+        apiClient.get(scoped('/catalog')),
+        apiClient.get(scoped('/datasets/study_directions/rows?limit=500')),
+        apiClient.get(scoped('/programs?limit=500')),
+        apiClient.get(scoped('/curricula?limit=500')),
+        apiClient.get(scoped('/datasets/disciplines/rows?limit=500'))
       ]);
       state.health = health;
       state.catalog = catalog;
@@ -225,6 +251,7 @@
       state.programs = programs.items || [];
       state.plans = plans.items || [];
       state.disciplines = disciplines.items || [];
+      state.capabilities = available.capabilities || {};
       setApiStatus(true, 'API online');
     } catch (error) {
       state.health = null;
@@ -242,12 +269,12 @@
     refs.drawer.classList.add('is-open');
     refs.drawer.setAttribute('aria-hidden', 'false');
     refs.backdrop.hidden = false;
-    const paths = { major: `/api/v1/majors/${encodeURIComponent(id)}`, program: `/api/v1/programs/${encodeURIComponent(id)}`, document: `/api/v1/study-plans/documents/${encodeURIComponent(id)}` };
+    const paths = { major: scoped(`/datasets/study_directions/rows?limit=1&id=${encodeURIComponent(id)}`), program: scoped(`/datasets/programs/rows?limit=1&id=${encodeURIComponent(id)}`), document: scoped(`/datasets/study_plan_documents/rows?limit=1&id=${encodeURIComponent(id)}`) };
     try {
       const data = await apiClient.get(paths[kind]);
-      refs.drawerTitle.textContent = data.name || data.document_id || 'Детали';
-      const file = kind === 'document' ? `<a class="button button-primary" href="${apiUrl(`/api/v1/study-plans/documents/${encodeURIComponent(id)}/file`)}" target="_blank" rel="noopener">Открыть исходный файл</a>` : '';
-      refs.drawerBody.innerHTML = `${file}<dl class="detail-list">${Object.entries(data).filter(([key]) => !['ontology', 'provenance', 'source_references'].includes(key)).map(([key, value]) => `<div><dt>${escapeHtml(key)}</dt><dd>${escapeHtml(typeof value === 'object' ? JSON.stringify(value, null, 2) : value)}</dd></div>`).join('')}</dl>`;
+      const item = data.items?.[0] || data;
+      refs.drawerTitle.textContent = item.name || item.document_id || 'Детали';
+      refs.drawerBody.innerHTML = `<dl class="detail-list">${Object.entries(item).filter(([key]) => !['ontology', 'provenance', 'source_references'].includes(key)).map(([key, value]) => `<div><dt>${escapeHtml(key)}</dt><dd>${escapeHtml(typeof value === 'object' ? JSON.stringify(value, null, 2) : value)}</dd></div>`).join('')}</dl>`;
     } catch (error) {
       refs.drawerTitle.textContent = 'Ошибка';
       refs.drawerBody.innerHTML = `<div class="empty-state"><p>${escapeHtml(error.message)}</p></div>`;
@@ -261,7 +288,7 @@
     try {
       const operation = document.getElementById('operation-name').value;
       const apiKey = document.getElementById('operation-key').value.trim();
-      state.operation = await apiClient.post('/api/v1/operations', { operation, strict: true, resume: true }, apiKey ? { apiKey } : {});
+      state.operation = await apiClient.post(scoped('/operations'), { operation, strict: true, resume: true }, apiKey ? { apiKey } : {});
       render();
       pollOperation(state.operation.id);
     } catch (error) {
@@ -272,7 +299,7 @@
 
   async function pollOperation(id) {
     try {
-      const current = await apiClient.get(`/api/v1/operations/${encodeURIComponent(id)}`);
+      const current = await apiClient.get(scoped(`/operations/${encodeURIComponent(id)}`));
       state.operation = current;
       render();
       if (current.status === 'queued' || current.status === 'running') window.setTimeout(() => pollOperation(id), 1500);
@@ -291,11 +318,13 @@
     const detailButton = event.target.closest('[data-details-kind]');
     if (detailButton) { openDetails(detailButton.dataset.detailsKind, detailButton.dataset.detailsId); return; }
     if (event.target.closest('#refresh-button')) { state.apiBase = refs.endpoint.value.trim() || defaultApiBase(); localStorage.setItem(STORAGE_KEY, state.apiBase); load(); return; }
+    if (event.target.closest('#university-select')) { state.universityId = refs.university.value; localStorage.setItem(UNIVERSITY_KEY, state.universityId); load(); return; }
     if (event.target.closest('#operation-start')) { startOperation(); return; }
     if (event.target.closest('#drawer-close') || event.target === refs.backdrop) closeDrawer();
   });
 
   refs.endpoint.value = state.apiBase;
+  renderUniversitySelector();
   refs.drawerClose.addEventListener('click', closeDrawer);
   refs.backdrop.addEventListener('click', closeDrawer);
   load();

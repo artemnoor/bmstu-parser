@@ -1,4 +1,4 @@
-(function attachBmstuApiClient(global) {
+(function attachUniversityApiClient(global) {
   function normalizeBase(value) {
     const raw = String(value || '').trim();
     return (raw || window.location.origin).replace(/\/$/, '');
@@ -49,5 +49,5 @@
     };
   }
 
-  global.BmstuApiClient = { ApiError, create };
+  global.UniversityApiClient = { ApiError, create };
 })(window);

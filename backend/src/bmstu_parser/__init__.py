@@ -1,3 +1,8 @@
-"""BMSTU education data ingestion and canonicalization pipeline."""
+"""Compatibility namespace for the pre-platform BMSTU implementation.
 
-__version__ = "2.1.0"
+New applications should import :mod:`university_data`.  This package remains
+temporarily available so existing extraction and balancing integrations keep
+working while their imports migrate.
+"""
+
+__version__ = "3.0.0"

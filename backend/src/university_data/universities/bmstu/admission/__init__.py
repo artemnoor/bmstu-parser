@@ -1,0 +1,1 @@
+"""BMSTU admission adapter seam."""

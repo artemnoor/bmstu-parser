@@ -1,0 +1,1 @@
+"""Registered university adapters."""

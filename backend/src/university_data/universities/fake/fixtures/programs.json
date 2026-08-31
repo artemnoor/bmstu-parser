@@ -1,0 +1,16 @@
+[
+  {
+    "id": "fi-program-analytics",
+    "code": "FA-01",
+    "name": "Прикладная аналитика",
+    "study_direction": "analytics",
+    "description": "Тестовая программа для проверки универсального pipeline."
+  },
+  {
+    "id": "fi-program-design",
+    "code": "FD-02",
+    "name": "Цифровой дизайн",
+    "study_direction": "design",
+    "description": "Программа с другим набором source-полей."
+  }
+]

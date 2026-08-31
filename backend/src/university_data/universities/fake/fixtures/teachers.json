@@ -1,0 +1,18 @@
+[
+  {
+    "id": "teacher-ada",
+    "name": "Ада Лавлейс",
+    "position": "профессор",
+    "department": "digital",
+    "email": "ada@example.test",
+    "teacher_rating": 4.8
+  },
+  {
+    "id": "teacher-grace",
+    "name": "Грейс Хоппер",
+    "position": "доцент",
+    "department": "analytics",
+    "email": "grace@example.test",
+    "teacher_rating": 4.6
+  }
+]

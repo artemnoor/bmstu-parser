@@ -10,9 +10,9 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* \
     && pip install --no-cache-dir .
 
-ENV BMSTU_RESULT_DIR=/app/data/result
-ENV BMSTU_API_HOST=0.0.0.0
+ENV UNIVERSITY_RESULT_DIR=/app/data/result
+ENV UNIVERSITY_API_HOST=0.0.0.0
 EXPOSE 8000
 VOLUME ["/app/data/result"]
 
-CMD ["bmstu-api", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["university-api", "--host", "0.0.0.0", "--port", "8000"]

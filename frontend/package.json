@@ -1,8 +1,8 @@
 {
-  "name": "bmstu-education-frontend",
+  "name": "university-data-console",
   "private": true,
   "version": "1.0.0",
-  "description": "Independent BMSTU data console frontend",
+  "description": "Independent multi-university data console frontend",
   "scripts": {
     "dev": "python -m http.server 5173 --directory .",
     "test:e2e": "playwright test"

@@ -34,6 +34,9 @@ jobs:
         run: ruff format --check src tests
       - name: Mypy typed core
         run: >-
+          mypy src/university_data
+          --ignore-missing-imports
+          &&
           mypy src/bmstu_parser/domain
           src/bmstu_parser/api/repository.py
           src/bmstu_parser/api/job_store.py
@@ -55,6 +58,13 @@ jobs:
           python -c "from pathlib import Path; from bmstu_parser.api.repository import DatasetRepository;
           import tempfile; p=Path(tempfile.mkdtemp()); (p/'majors.csv').write_text('id,name\n1,Smoke\n', encoding='utf-8');
           r=DatasetRepository(p, engine='duckdb'); assert r.engine == 'duckdb'; assert r.page('majors', offset=0, limit=1)['total'] == 1"
+      - name: Validate generated OpenAPI contract
+        run: python -m json.tool ../contracts/openapi.json > /dev/null
+      - name: Verify FakeUniversity pipeline
+        run: >-
+          python -c "from pathlib import Path; from tempfile import TemporaryDirectory;
+          from university_data import REGISTRY; from university_data.pipeline import UniversityPipeline, PipelineOptions;
+          d=TemporaryDirectory(); q=UniversityPipeline(REGISTRY).run('fake', PipelineOptions(output_dir=Path(d.name), strict=True)); d.cleanup(); assert q['verification']['passed']"
 
   docker:
     name: Docker · Poppler smoke
@@ -62,9 +72,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build API image
-        run: docker build --tag bmstu-parser-ci --file backend/Dockerfile backend
+        run: docker build --tag university-data-platform-ci --file backend/Dockerfile backend
       - name: Check native PDF dependency
-        run: docker run --rm bmstu-parser-ci sh -c 'command -v pdftotext && pdftotext -v'
+        run: docker run --rm university-data-platform-ci sh -c 'command -v pdftotext && pdftotext -v && python -c "import university_data; assert university_data.REGISTRY.ids() == (\"bmstu\", \"fake\")"'
 
   frontend:
     name: Frontend · Playwright smoke

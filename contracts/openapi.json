@@ -1,17 +1,13 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "BMSTU Education Data API",
-    "summary": "API для взаимодействия с каноническими данными программ и учебных планов МГТУ им. Н. Э. Баумана",
-    "description": "REST API поверх raw, canonical и semantic datasets BMSTU parser. Swagger UI доступен по `/docs`, ReDoc — по `/redoc`, OpenAPI-контракт — по `/openapi.json`. Записи выдаются постранично, а все изменения выполняются как наблюдаемые фоновые операции.",
-    "version": "1.0.0"
+    "title": "University Data Platform API",
+    "summary": "Scoped API for canonical university data",
+    "version": "3.0.0"
   },
   "paths": {
     "/health": {
       "get": {
-        "tags": [
-          "system"
-        ],
         "summary": "Health",
         "operationId": "health_health_get",
         "responses": {
@@ -20,7 +16,8 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HealthResponse"
+                  "type": "object",
+                  "title": "Response Health Health Get"
                 }
               }
             }
@@ -28,111 +25,88 @@
         }
       }
     },
-    "/api/v1/catalog": {
+    "/api/v1/universities": {
+      "get": {
+        "tags": [
+          "universities"
+        ],
+        "summary": "Universities",
+        "operationId": "universities_api_v1_universities_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/UniversityDescriptor"
+                  },
+                  "type": "array",
+                  "title": "Response Universities Api V1 Universities Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/universities/{university_id}": {
+      "get": {
+        "tags": [
+          "universities"
+        ],
+        "summary": "University",
+        "operationId": "university_api_v1_universities__university_id__get",
+        "parameters": [
+          {
+            "name": "university_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "University Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UniversityDescriptor"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/universities/{university_id}/catalog": {
       "get": {
         "tags": [
           "catalog"
         ],
         "summary": "Catalog",
-        "operationId": "catalog_api_v1_catalog_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "title": "Response Catalog Api V1 Catalog Get"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/quality": {
-      "get": {
-        "tags": [
-          "catalog"
-        ],
-        "summary": "Quality",
-        "operationId": "quality_api_v1_quality_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "title": "Response Quality Api V1 Quality Get"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/runs": {
-      "get": {
-        "tags": [
-          "system"
-        ],
-        "summary": "Runs",
-        "operationId": "runs_api_v1_runs_get",
+        "operationId": "catalog_api_v1_universities__university_id__catalog_get",
         "parameters": [
           {
-            "name": "limit",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "maximum": 100,
-              "minimum": 1,
-              "default": 20,
-              "title": "Limit"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "title": "Response Runs Api V1 Runs Get"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/runs/{run_id}": {
-      "get": {
-        "tags": [
-          "system"
-        ],
-        "summary": "Run",
-        "operationId": "run_api_v1_runs__run_id__get",
-        "parameters": [
-          {
-            "name": "run_id",
+            "name": "university_id",
             "in": "path",
             "required": true,
             "schema": {
               "type": "string",
-              "title": "Run Id"
+              "title": "University Id"
             }
           }
         ],
@@ -143,7 +117,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
-                  "title": "Response Run Api V1 Runs  Run Id  Get"
+                  "title": "Response Catalog Api V1 Universities  University Id  Catalog Get"
                 }
               }
             }
@@ -161,42 +135,21 @@
         }
       }
     },
-    "/api/v1/datasets": {
+    "/api/v1/universities/{university_id}/datasets": {
       "get": {
         "tags": [
           "datasets"
         ],
         "summary": "Datasets",
-        "operationId": "datasets_api_v1_datasets_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DatasetCatalogResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/datasets/{dataset_name}": {
-      "get": {
-        "tags": [
-          "datasets"
-        ],
-        "summary": "Dataset",
-        "operationId": "dataset_api_v1_datasets__dataset_name__get",
+        "operationId": "datasets_api_v1_universities__university_id__datasets_get",
         "parameters": [
           {
-            "name": "dataset_name",
+            "name": "university_id",
             "in": "path",
             "required": true,
             "schema": {
               "type": "string",
-              "title": "Dataset Name"
+              "title": "University Id"
             }
           }
         ],
@@ -206,8 +159,11 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "title": "Response Dataset Api V1 Datasets  Dataset Name  Get"
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/DatasetDescriptor"
+                  },
+                  "title": "Response Datasets Api V1 Universities  University Id  Datasets Get"
                 }
               }
             }
@@ -225,21 +181,30 @@
         }
       }
     },
-    "/api/v1/datasets/{dataset_name}/rows": {
+    "/api/v1/universities/{university_id}/datasets/{name}/rows": {
       "get": {
         "tags": [
           "datasets"
         ],
         "summary": "Dataset Rows",
-        "operationId": "dataset_rows_api_v1_datasets__dataset_name__rows_get",
+        "operationId": "dataset_rows_api_v1_universities__university_id__datasets__name__rows_get",
         "parameters": [
           {
-            "name": "dataset_name",
+            "name": "university_id",
             "in": "path",
             "required": true,
             "schema": {
               "type": "string",
-              "title": "Dataset Name"
+              "title": "University Id"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Name"
             }
           },
           {
@@ -278,10 +243,8 @@
                   "type": "null"
                 }
               ],
-              "description": "Полнотекстовый поиск по сериализованной записи",
               "title": "Q"
-            },
-            "description": "Полнотекстовый поиск по сериализованной записи"
+            }
           },
           {
             "name": "id",
@@ -296,73 +259,7 @@
                   "type": "null"
                 }
               ],
-              "description": "Точное значение поля id",
               "title": "Id"
-            },
-            "description": "Точное значение поля id"
-          },
-          {
-            "name": "document_id",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Document Id"
-            }
-          },
-          {
-            "name": "table_id",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Table Id"
-            }
-          },
-          {
-            "name": "discipline_id",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Discipline Id"
-            }
-          },
-          {
-            "name": "major_id",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Major Id"
             }
           },
           {
@@ -396,22 +293,6 @@
               ],
               "title": "Department Id"
             }
-          },
-          {
-            "name": "slug",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Slug"
-            }
           }
         ],
         "responses": {
@@ -438,161 +319,23 @@
         }
       }
     },
-    "/api/v1/majors": {
-      "get": {
-        "tags": [
-          "domain"
-        ],
-        "summary": "Majors",
-        "operationId": "majors_api_v1_majors_get",
-        "parameters": [
-          {
-            "name": "offset",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "minimum": 0,
-              "default": 0,
-              "title": "Offset"
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "maximum": 500,
-              "minimum": 1,
-              "default": 50,
-              "title": "Limit"
-            }
-          },
-          {
-            "name": "q",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Q"
-            }
-          },
-          {
-            "name": "code",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Code"
-            }
-          },
-          {
-            "name": "slug",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Slug"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DatasetPage"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/majors/{slug}": {
-      "get": {
-        "tags": [
-          "domain"
-        ],
-        "summary": "Major",
-        "operationId": "major_api_v1_majors__slug__get",
-        "parameters": [
-          {
-            "name": "slug",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Slug"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "title": "Response Major Api V1 Majors  Slug  Get"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/programs": {
+    "/api/v1/universities/{university_id}/programs": {
       "get": {
         "tags": [
           "domain"
         ],
         "summary": "Programs",
-        "operationId": "programs_api_v1_programs_get",
+        "operationId": "programs_api_v1_universities__university_id__programs_get",
         "parameters": [
+          {
+            "name": "university_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "University Id"
+            }
+          },
           {
             "name": "offset",
             "in": "query",
@@ -630,22 +373,6 @@
                 }
               ],
               "title": "Q"
-            }
-          },
-          {
-            "name": "major_id",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Major Id"
             }
           },
           {
@@ -689,57 +416,23 @@
         }
       }
     },
-    "/api/v1/programs/{program_id}": {
+    "/api/v1/universities/{university_id}/curricula": {
       "get": {
         "tags": [
           "domain"
         ],
-        "summary": "Program",
-        "operationId": "program_api_v1_programs__program_id__get",
+        "summary": "Curricula",
+        "operationId": "curricula_api_v1_universities__university_id__curricula_get",
         "parameters": [
           {
-            "name": "program_id",
+            "name": "university_id",
             "in": "path",
             "required": true,
             "schema": {
               "type": "string",
-              "title": "Program Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "title": "Response Program Api V1 Programs  Program Id  Get"
-                }
-              }
+              "title": "University Id"
             }
           },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/study-plans/documents": {
-      "get": {
-        "tags": [
-          "study plans"
-        ],
-        "summary": "Study Plan Documents",
-        "operationId": "study_plan_documents_api_v1_study_plans_documents_get",
-        "parameters": [
           {
             "name": "offset",
             "in": "query",
@@ -820,64 +513,21 @@
         }
       }
     },
-    "/api/v1/study-plans/documents/{document_id}": {
+    "/api/v1/universities/{university_id}/departments": {
       "get": {
         "tags": [
-          "study plans"
+          "domain"
         ],
-        "summary": "Study Plan Document",
-        "operationId": "study_plan_document_api_v1_study_plans_documents__document_id__get",
+        "summary": "Departments",
+        "operationId": "departments_api_v1_universities__university_id__departments_get",
         "parameters": [
           {
-            "name": "document_id",
+            "name": "university_id",
             "in": "path",
             "required": true,
             "schema": {
               "type": "string",
-              "title": "Document Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "title": "Response Study Plan Document Api V1 Study Plans Documents  Document Id  Get"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/study-plans/documents/{document_id}/tables": {
-      "get": {
-        "tags": [
-          "study plans"
-        ],
-        "summary": "Study Plan Document Tables",
-        "operationId": "study_plan_document_tables_api_v1_study_plans_documents__document_id__tables_get",
-        "parameters": [
-          {
-            "name": "document_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Document Id"
+              "title": "University Id"
             }
           },
           {
@@ -899,8 +549,24 @@
               "type": "integer",
               "maximum": 500,
               "minimum": 1,
-              "default": 100,
+              "default": 50,
               "title": "Limit"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
             }
           }
         ],
@@ -928,21 +594,21 @@
         }
       }
     },
-    "/api/v1/study-plans/documents/{document_id}/disciplines": {
+    "/api/v1/universities/{university_id}/faculties": {
       "get": {
         "tags": [
-          "study plans"
+          "domain"
         ],
-        "summary": "Study Plan Document Disciplines",
-        "operationId": "study_plan_document_disciplines_api_v1_study_plans_documents__document_id__disciplines_get",
+        "summary": "Faculties",
+        "operationId": "faculties_api_v1_universities__university_id__faculties_get",
         "parameters": [
           {
-            "name": "document_id",
+            "name": "university_id",
             "in": "path",
             "required": true,
             "schema": {
               "type": "string",
-              "title": "Document Id"
+              "title": "University Id"
             }
           },
           {
@@ -964,8 +630,24 @@
               "type": "integer",
               "maximum": 500,
               "minimum": 1,
-              "default": 100,
+              "default": 50,
               "title": "Limit"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
             }
           }
         ],
@@ -993,21 +675,60 @@
         }
       }
     },
-    "/api/v1/study-plans/documents/{document_id}/file": {
+    "/api/v1/universities/{university_id}/admission": {
       "get": {
         "tags": [
-          "study plans"
+          "domain"
         ],
-        "summary": "Study Plan Document File",
-        "operationId": "study_plan_document_file_api_v1_study_plans_documents__document_id__file_get",
+        "summary": "Admission",
+        "operationId": "admission_api_v1_universities__university_id__admission_get",
         "parameters": [
           {
-            "name": "document_id",
+            "name": "university_id",
             "in": "path",
             "required": true,
             "schema": {
               "type": "string",
-              "title": "Document Id"
+              "title": "University Id"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
             }
           }
         ],
@@ -1016,7 +737,9 @@
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetPage"
+                }
               }
             }
           },
@@ -1033,14 +756,201 @@
         }
       }
     },
-    "/api/v1/operations": {
+    "/api/v1/universities/{university_id}/tuition": {
+      "get": {
+        "tags": [
+          "domain"
+        ],
+        "summary": "Tuition",
+        "operationId": "tuition_api_v1_universities__university_id__tuition_get",
+        "parameters": [
+          {
+            "name": "university_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "University Id"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetPage"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/universities/{university_id}/teachers": {
+      "get": {
+        "tags": [
+          "domain"
+        ],
+        "summary": "Teachers",
+        "operationId": "teachers_api_v1_universities__university_id__teachers_get",
+        "parameters": [
+          {
+            "name": "university_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "University Id"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          },
+          {
+            "name": "department_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Department Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetPage"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/universities/{university_id}/operations": {
       "post": {
         "tags": [
           "operations"
         ],
         "summary": "Start Operation",
-        "operationId": "start_operation_api_v1_operations_post",
+        "operationId": "start_operation_api_v1_universities__university_id__operations_post",
         "parameters": [
+          {
+            "name": "university_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "University Id"
+            }
+          },
           {
             "name": "X-API-Key",
             "in": "header",
@@ -1092,14 +1002,23 @@
         }
       }
     },
-    "/api/v1/operations/{operation_id}": {
+    "/api/v1/universities/{university_id}/operations/{operation_id}": {
       "get": {
         "tags": [
           "operations"
         ],
         "summary": "Operation",
-        "operationId": "operation_api_v1_operations__operation_id__get",
+        "operationId": "operation_api_v1_universities__university_id__operations__operation_id__get",
         "parameters": [
+          {
+            "name": "university_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "University Id"
+            }
+          },
           {
             "name": "operation_id",
             "in": "path",
@@ -1137,22 +1056,6 @@
   },
   "components": {
     "schemas": {
-      "DatasetCatalogResponse": {
-        "properties": {
-          "datasets": {
-            "items": {
-              "$ref": "#/components/schemas/DatasetDescriptor"
-            },
-            "type": "array",
-            "title": "Datasets"
-          }
-        },
-        "type": "object",
-        "required": [
-          "datasets"
-        ],
-        "title": "DatasetCatalogResponse"
-      },
       "DatasetDescriptor": {
         "properties": {
           "name": {
@@ -1258,63 +1161,6 @@
         "type": "object",
         "title": "HTTPValidationError"
       },
-      "HealthResponse": {
-        "properties": {
-          "status": {
-            "type": "string",
-            "enum": [
-              "ok",
-              "degraded"
-            ],
-            "title": "Status"
-          },
-          "service": {
-            "type": "string",
-            "title": "Service"
-          },
-          "version": {
-            "type": "string",
-            "title": "Version"
-          },
-          "result_dir": {
-            "type": "string",
-            "title": "Result Dir"
-          },
-          "dataset_ready": {
-            "type": "boolean",
-            "title": "Dataset Ready"
-          },
-          "quality_passed": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Quality Passed"
-          },
-          "data_engine": {
-            "type": "string",
-            "enum": [
-              "duckdb",
-              "file"
-            ],
-            "title": "Data Engine",
-            "default": "duckdb"
-          }
-        },
-        "type": "object",
-        "required": [
-          "status",
-          "service",
-          "version",
-          "result_dir",
-          "dataset_ready"
-        ],
-        "title": "HealthResponse"
-      },
       "OperationRequest": {
         "properties": {
           "operation": {
@@ -1325,33 +1171,28 @@
               "extract_semantics",
               "compact_study_plans"
             ],
-            "title": "Operation",
-            "description": "Операция над данными"
+            "title": "Operation"
           },
           "workers": {
             "type": "integer",
             "maximum": 32.0,
             "minimum": 1.0,
             "title": "Workers",
-            "description": "Число параллельных workers",
             "default": 4
           },
           "strict": {
             "type": "boolean",
             "title": "Strict",
-            "description": "Считать операцию неуспешной при провале quality gate",
             "default": true
           },
           "download_plans": {
             "type": "boolean",
             "title": "Download Plans",
-            "description": "Для refresh: скачивать учебные планы",
             "default": false
           },
           "resolve_plans": {
             "type": "boolean",
             "title": "Resolve Plans",
-            "description": "Для refresh: разрешать ссылки учебных планов",
             "default": true
           },
           "reader_backend": {
@@ -1361,13 +1202,11 @@
               "docling"
             ],
             "title": "Reader Backend",
-            "description": "Backend извлечения PDF/DOCX",
             "default": "native"
           },
           "resume": {
             "type": "boolean",
             "title": "Resume",
-            "description": "Возобновлять извлечение по неповреждённым checkpoints",
             "default": true
           },
           "page_size": {
@@ -1375,7 +1214,6 @@
             "maximum": 500.0,
             "minimum": 1.0,
             "title": "Page Size",
-            "description": "Для refresh: размер страницы API",
             "default": 100
           },
           "timeout": {
@@ -1383,7 +1221,6 @@
             "maximum": 300.0,
             "exclusiveMinimum": 0.0,
             "title": "Timeout",
-            "description": "Для refresh: HTTP timeout",
             "default": 30.0
           },
           "delay": {
@@ -1391,7 +1228,6 @@
             "maximum": 60.0,
             "minimum": 0.0,
             "title": "Delay",
-            "description": "Для refresh: пауза между запросами",
             "default": 0.15
           }
         },
@@ -1406,6 +1242,10 @@
           "id": {
             "type": "string",
             "title": "Id"
+          },
+          "university_id": {
+            "type": "string",
+            "title": "University Id"
           },
           "operation": {
             "type": "string",
@@ -1473,11 +1313,51 @@
         "type": "object",
         "required": [
           "id",
+          "university_id",
           "operation",
           "status",
           "submitted_at_utc"
         ],
         "title": "OperationStatus"
+      },
+      "UniversityDescriptor": {
+        "properties": {
+          "university_id": {
+            "type": "string",
+            "title": "University Id"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          },
+          "capabilities": {
+            "additionalProperties": {
+              "type": "boolean"
+            },
+            "type": "object",
+            "title": "Capabilities"
+          },
+          "capability_status": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Capability Status"
+          },
+          "data_ready": {
+            "type": "boolean",
+            "title": "Data Ready"
+          }
+        },
+        "type": "object",
+        "required": [
+          "university_id",
+          "display_name",
+          "capabilities",
+          "capability_status",
+          "data_ready"
+        ],
+        "title": "UniversityDescriptor"
       },
       "ValidationError": {
         "properties": {

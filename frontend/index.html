@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0e1829">
   <link rel="icon" href="data:,">
-  <title>BMSTU Data Console</title>
+  <title>University Data Console</title>
   <link rel="stylesheet" href="styles.css">
   <script src="api-client.js" defer></script>
   <script src="app.js" defer></script>
@@ -14,8 +14,8 @@
   <div class="app-shell">
     <aside class="sidebar" aria-label="Основная навигация">
       <a class="brand" href="#overview" data-view="overview">
-        <span class="brand-mark">BM</span>
-        <span><strong>BMSTU</strong><small>Data Console</small></span>
+        <span class="brand-mark">UD</span>
+        <span><strong>UNIVERSITY DATA</strong><small>Data Console</small></span>
       </a>
       <p class="sidebar-label">Рабочие области</p>
       <nav class="nav-list">
@@ -32,10 +32,12 @@
     <main class="main-content">
       <header class="topbar">
         <div>
-          <p class="eyebrow">BMSTU / DATA SERVICE</p>
+          <p class="eyebrow">UNIVERSITY DATA / SERVICE</p>
           <h1 id="page-title">Операционный обзор</h1>
         </div>
         <div class="endpoint-control">
+          <label for="university-select">Университет</label>
+          <select id="university-select" data-testid="university-select" aria-label="Университет"></select>
           <label for="api-endpoint">API endpoint</label>
           <div class="endpoint-row">
             <input id="api-endpoint" type="url" autocomplete="url" aria-label="API endpoint">
