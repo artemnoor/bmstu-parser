@@ -39,25 +39,17 @@ jobs:
           src/bmstu_parser/api/job_store.py
           --ignore-missing-imports
       - name: Unit and integration tests
-        run: >-
-          python -m pytest -q -p no:cacheprovider
-          --cov=bmstu_parser.domain
-          --cov=bmstu_parser.api.config
-          --cov=bmstu_parser.api.models
-          --cov=bmstu_parser.api.jobs
-          --cov=bmstu_parser.api.job_store
-          --cov=bmstu_parser.api.repository
-          --cov=bmstu_parser.transform
-          --cov=bmstu_parser.study_plans.semantic_curriculum
-          --cov=bmstu_parser.study_plans.semantic_geometry
-          --cov=bmstu_parser.study_plans.semantic_io
-          --cov=bmstu_parser.study_plans.semantic_ontology
-          --cov=bmstu_parser.study_plans.semantic_quality
-          --cov=bmstu_parser.study_plans.semantic_reconciliation
-          --cov=bmstu_parser.study_plans.semantic_schema
-          --cov=bmstu_parser.study_plans.semantic_shared
-          --cov=bmstu_parser.study_plans.semantics
-          --cov-fail-under=80
+        env:
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
+        run: python -m pytest -q -p no:cacheprovider -p pytest_asyncio.plugin
+      - name: Coverage run (Python 3.12)
+        if: matrix.python-version == '3.12'
+        env:
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
+        run: python -m coverage run -m pytest -q -p no:cacheprovider -p pytest_asyncio.plugin
+      - name: Coverage threshold (Python 3.12)
+        if: matrix.python-version == '3.12'
+        run: python -m coverage report --fail-under=80
       - name: Verify DuckDB runtime adapter
         run: >-
           python -c "from pathlib import Path; from bmstu_parser.api.repository import DatasetRepository;

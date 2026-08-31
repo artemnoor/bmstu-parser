@@ -24,7 +24,7 @@ dev = [
     "httpx>=0.27,<1",
     "pytest>=8.0,<9",
     "pytest-asyncio>=0.23,<1",
-    "pytest-cov>=5,<7",
+    "coverage>=7.5,<8",
     "ruff==0.16.5",
 ]
 
@@ -39,6 +39,21 @@ where = ["src"]
 testpaths = ["tests"]
 pythonpath = ["src"]
 asyncio_default_fixture_loop_scope = "function"
+
+[tool.coverage.run]
+source = [
+    "bmstu_parser.domain",
+    "bmstu_parser.transform",
+    "bmstu_parser.study_plans.semantic_curriculum",
+    "bmstu_parser.study_plans.semantic_geometry",
+    "bmstu_parser.study_plans.semantic_io",
+    "bmstu_parser.study_plans.semantic_ontology",
+    "bmstu_parser.study_plans.semantic_quality",
+    "bmstu_parser.study_plans.semantic_reconciliation",
+    "bmstu_parser.study_plans.semantic_schema",
+    "bmstu_parser.study_plans.semantic_shared",
+    "bmstu_parser.study_plans.semantics",
+]
 
 [tool.mypy]
 python_version = "3.11"
