@@ -18,6 +18,7 @@
     universityId: localStorage.getItem(UNIVERSITY_KEY) || 'bmstu',
     universities: [],
     capabilities: {},
+    capabilityStatus: {},
     health: null,
     catalog: null,
     majors: [],
@@ -96,6 +97,14 @@
     return state.universities.find((item) => item.university_id === state.universityId) || state.universities[0];
   }
 
+  function capabilityState(name) {
+    return state.capabilityStatus[name] || (state.capabilities[name] ? 'published' : 'not_supported');
+  }
+
+  function capabilityLabel(value) {
+    return ({ published: 'доступно', not_supported: 'не поддерживается', not_published: 'не опубликовано', ambiguous: 'неоднозначно', invalid: 'некорректно' })[value] || value;
+  }
+
   function renderUniversitySelector() {
     if (!refs.university) return;
     refs.university.innerHTML = state.universities.map((item) => `<option value="${escapeHtml(item.university_id)}">${escapeHtml(item.display_name)}</option>`).join('');
@@ -152,7 +161,7 @@
     const passed = reports.filter(([, report]) => verification(report) === true).length;
     const majorRows = filtered(state.majors).slice(0, 8).map((row) => `<tr>
       <td class="mono">${display(row.code)}</td>
-      <td><button class="link-button" data-details-kind="major" data-details-id="${escapeHtml(row.slug || '')}">${display(row.name)}</button><small class="subline">${display(row.duration || row.study_duration, '')}</small></td>
+      <td><button class="link-button" data-details-kind="major" data-details-id="${escapeHtml(row.id || row.slug || '')}">${display(row.name)}</button><small class="subline">${display(row.duration || row.study_duration, '')}</small></td>
       <td>${display(row.faculty_name || row.faculty || row.department_name)}</td>
       <td>${display(row.program_count || row.programs_count, '—')}</td>
       <td>${display(tuition(row.tuition || row.price || row.min_price), '—')}</td>
@@ -161,7 +170,7 @@
     const operation = state.operation;
     return `<div class="view-stack">
       <section class="hero-panel">
-        <div><p class="eyebrow">CANONICAL DATA LAYER</p><h2>Единая точка наблюдения за образовательными данными</h2><p>Панель читает scoped datasets выбранного университета и показывает их состояние, структуру и связанные учебные планы.</p><div class="capability-list">${Object.entries(state.capabilities).map(([name, supported]) => `<span class="status-pill ${supported ? 'is-ok' : 'is-warn'}">${escapeHtml(name)} · ${supported ? 'доступно' : 'не поддерживается'}</span>`).join('')}</div></div>
+        <div><p class="eyebrow">CANONICAL DATA LAYER</p><h2>Единая точка наблюдения за образовательными данными</h2><p>Панель читает scoped datasets выбранного университета и показывает их состояние, структуру и связанные учебные планы.</p><div class="capability-list">${Object.keys(state.capabilities).map((name) => { const current = capabilityState(name); return `<span class="status-pill ${current === 'published' ? 'is-ok' : 'is-warn'}">${escapeHtml(name)} · ${escapeHtml(capabilityLabel(current))}</span>`; }).join('')}</div></div>
         <div class="hero-state ${state.health?.status === 'ok' ? 'is-online' : 'is-muted'}"><span></span>${state.health?.status === 'ok' ? 'API online' : 'API недоступен'}<small>${state.health ? `Обновлено ${new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}` : 'Ожидание подключения'}</small></div>
       </section>
       <section class="metrics-grid" aria-label="Ключевые показатели">
@@ -187,17 +196,17 @@
   }
 
   function renderMajors() {
-    const rows = filtered(state.majors).map((row) => `<tr><td class="mono">${display(row.code)}</td><td><button class="link-button" data-details-kind="major" data-details-id="${escapeHtml(row.slug || '')}">${display(row.name)}</button><small class="subline">${display(row.duration || row.study_duration, '')}</small></td><td>${display(row.faculty_name || row.faculty || row.department_name)}</td><td>${display(row.program_count || row.programs_count, '—')}</td><td>${display(tuition(row.tuition || row.price || row.min_price), '—')}</td><td><span class="status-pill is-ok">OK</span></td></tr>`);
+    const rows = filtered(state.majors).map((row) => `<tr><td class="mono">${display(row.code)}</td><td><button class="link-button" data-details-kind="major" data-details-id="${escapeHtml(row.id || row.slug || '')}">${display(row.name)}</button><small class="subline">${display(row.duration || row.study_duration, '')}</small></td><td>${display(row.faculty_name || row.faculty || row.department_name)}</td><td>${display(row.program_count || row.programs_count, '—')}</td><td>${display(tuition(row.tuition || row.price || row.min_price), '—')}</td><td><span class="status-pill is-ok">OK</span></td></tr>`);
     return `<div class="view-stack"><section class="section-intro"><div><p class="eyebrow">DOMAIN / MAJORS</p><h2>Направления подготовки</h2><p>Коды, факультеты, стоимость, вступительные предметы и связанные программы.</p></div><strong>${number(filtered(state.majors).length)} из ${number(state.majors.length)}</strong></section><section class="panel">${searchControl('Поиск направления')}${table(['Код', 'Направление', 'Факультет', 'Программы', 'Стоимость', ''], rows, 'Направления не найдены')}</section></div>`;
   }
 
   function renderPrograms() {
-    const rows = filtered(state.programs).map((row) => `<tr><td class="mono">${display(row.code)}</td><td><button class="link-button" data-details-kind="program" data-details-id="${escapeHtml(row.id || '')}">${display(row.name)}</button></td><td>${display(row.department_name || row.department || row.faculty_name)}</td><td class="mono">${display(row.major_code || row.major_id)}</td><td><span class="status-pill is-ok">OK</span></td></tr>`);
+    const rows = filtered(state.programs).map((row) => `<tr><td class="mono">${display(row.code)}</td><td><button class="link-button" data-details-kind="program" data-details-id="${escapeHtml(row.id || '')}">${display(row.name)}</button></td><td>${display(row.department_name || row.department || row.faculty_name || row.department_id)}</td><td class="mono">${display(row.study_direction_id || row.major_code || row.major_id)}</td><td><span class="status-pill is-ok">OK</span></td></tr>`);
     return `<div class="view-stack"><section class="section-intro"><div><p class="eyebrow">PROGRAMS / CATALOG</p><h2>Образовательные программы</h2><p>Программы с сохранённым контекстом кафедры и связью с направлением.</p></div><strong>${number(filtered(state.programs).length)} записей</strong></section><section class="panel">${searchControl('Поиск программы, кафедры или кода')}${table(['Код', 'Программа', 'Кафедра', 'Направление', 'Статус'], rows, 'Программы не найдены')}</section></div>`;
   }
 
   function renderPlans() {
-    const rows = filtered(state.plans).map((row) => `<tr><td class="mono">${display(row.document_id)}</td><td><button class="link-button" data-details-kind="document" data-details-id="${escapeHtml(row.document_id || '')}">${display((row.local_path || '').split(/[\\/]/).pop() || row.file_name || row.document_id)}</button><small class="subline">${display(row.kind, '')} · ${display(row.page_count, '')} стр.</small></td><td>${display(row.table_count, '—')}</td><td>${display(row.row_count, '—')}</td><td><span class="status-pill ${row.status === 'ok' ? 'is-ok' : 'is-warn'}">${display(row.status, 'unknown')}</span></td></tr>`);
+    const rows = filtered(state.plans).map((row) => { const planMeta = row.extensions?.[state.universityId] || {}; const status = planMeta.study_plan_status || row.status; const sourcePath = row.source_path || row.local_path || ''; return `<tr><td class="mono">${display(row.id || row.document_id)}</td><td><button class="link-button" data-details-kind="document" data-details-id="${escapeHtml(row.id || row.document_id || '')}">${display(sourcePath.split(/[\\/]/).pop() || row.file_name || row.name || row.id)}</button><small class="subline">${display(row.program_id, '')}</small></td><td>${display(planMeta.study_plan_file_count ?? row.table_count, '—')}</td><td>${display(row.row_count, '—')}</td><td><span class="status-pill ${status === 'ok' ? 'is-ok' : 'is-warn'}">${display(status, 'unknown')}</span></td></tr>`; });
     return `<div class="view-stack"><section class="section-intro"><div><p class="eyebrow">DOCUMENTS / STUDY PLANS</p><h2>Учебные планы</h2><p>Канонические документы, таблицы, строки, дисциплины и исходные файлы.</p></div><strong>${number(filtered(state.plans).length)} документов</strong></section><section class="panel">${searchControl('Поиск документа или программы')}${table(['ID документа', 'Файл', 'Таблицы', 'Строки', 'Статус'], rows, 'Учебные планы не найдены')}</section></div>`;
   }
 
@@ -237,13 +246,17 @@
       state.universityId = available.university_id;
       localStorage.setItem(UNIVERSITY_KEY, state.universityId);
       renderUniversitySelector();
+      state.capabilities = available.capabilities || {};
+      state.capabilityStatus = available.capability_status || {};
+      const can = (name) => Boolean(state.capabilities[name]);
+      const emptyPage = Promise.resolve({ items: [] });
       const [health, catalog, majors, programs, plans, disciplines] = await Promise.all([
         apiClient.get('/health'),
         apiClient.get(scoped('/catalog')),
-        apiClient.get(scoped('/datasets/study_directions/rows?limit=500')),
-        apiClient.get(scoped('/programs?limit=500')),
-        apiClient.get(scoped('/curricula?limit=500')),
-        apiClient.get(scoped('/datasets/disciplines/rows?limit=500'))
+        can('programs') ? apiClient.get(scoped('/datasets/study_directions/rows?limit=500')) : emptyPage,
+        can('programs') ? apiClient.get(scoped('/programs?limit=500')) : emptyPage,
+        can('curricula') ? apiClient.get(scoped('/curricula?limit=500')) : emptyPage,
+        can('curricula') ? apiClient.get(scoped('/datasets/disciplines/rows?limit=500')) : emptyPage
       ]);
       state.health = health;
       state.catalog = catalog;
@@ -251,7 +264,6 @@
       state.programs = programs.items || [];
       state.plans = plans.items || [];
       state.disciplines = disciplines.items || [];
-      state.capabilities = available.capabilities || {};
       setApiStatus(true, 'API online');
     } catch (error) {
       state.health = null;
@@ -269,7 +281,7 @@
     refs.drawer.classList.add('is-open');
     refs.drawer.setAttribute('aria-hidden', 'false');
     refs.backdrop.hidden = false;
-    const paths = { major: scoped(`/datasets/study_directions/rows?limit=1&id=${encodeURIComponent(id)}`), program: scoped(`/datasets/programs/rows?limit=1&id=${encodeURIComponent(id)}`), document: scoped(`/datasets/study_plan_documents/rows?limit=1&id=${encodeURIComponent(id)}`) };
+    const paths = { major: scoped(`/datasets/study_directions/rows?limit=1&id=${encodeURIComponent(id)}`), program: scoped(`/datasets/programs/rows?limit=1&id=${encodeURIComponent(id)}`), document: scoped(`/datasets/curricula/rows?limit=1&id=${encodeURIComponent(id)}`) };
     try {
       const data = await apiClient.get(paths[kind]);
       const item = data.items?.[0] || data;

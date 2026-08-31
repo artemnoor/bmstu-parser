@@ -74,7 +74,10 @@ jobs:
       - name: Build API image
         run: docker build --tag university-data-platform-ci --file backend/Dockerfile backend
       - name: Check native PDF dependency
-        run: docker run --rm university-data-platform-ci sh -c 'command -v pdftotext && pdftotext -v && python -c "import university_data; assert university_data.REGISTRY.ids() == (\"bmstu\", \"fake\")"'
+        run: >-
+          docker run --rm university-data-platform-ci sh -c
+          'command -v pdftotext && pdftotext -v && python -c
+          "from university_data import REGISTRY; assert REGISTRY.ids() == (\"bmstu\", \"fake\"); assert REGISTRY.require(\"fake\").capabilities().teachers"'
 
   frontend:
     name: Frontend · Playwright smoke

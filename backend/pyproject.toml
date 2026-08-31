@@ -40,6 +40,14 @@ bmstu-api = "bmstu_parser.api.cli:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+university_data = [
+    "universities/bmstu/config.yaml",
+    "universities/fake/config.yaml",
+    "universities/fake/fixtures/*.json",
+    "universities/fake/fixtures/*.xlsx",
+]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
@@ -50,7 +58,7 @@ source = [
     "university_data.domain",
     "university_data.normalization",
     "university_data.resolvers",
-    "university_data.sources",
+    "university_data.sources.xlsx",
     "bmstu_parser.domain",
     "bmstu_parser.transform",
     "bmstu_parser.study_plans.semantic_curriculum",

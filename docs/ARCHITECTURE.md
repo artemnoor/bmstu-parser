@@ -48,17 +48,18 @@ Mirror API                         Yandex public resources
 
 | Сущность | Ontology object | Основной источник |
 |---|---|---|
-| Направление | `major` | карточка направления |
+| Университет | `university` | registry/config |
+| Направление подготовки | `study_direction` | карточка направления |
 | Факультет | `faculty` | список направлений и карточка |
 | Кафедра | `department` | `chairs.items[]` карточки |
-| Образовательная программа | `educational_program` | `chairs.items[].educationalProgram.items[]` |
-| Вступительное требование | `entrance_requirement` | `points[]` |
+| Образовательная программа | `program` | `chairs.items[].educationalProgram.items[]` |
+| Вступительное требование | `admission_requirement` | `points[]` |
 | Вариант стоимости | `tuition_option` | `price[]` |
 | Места | `admission_place` | `places[]` |
 | Исторический проходной балл | `historical_passing_score` | `chairs.items[].oldPoints.points[]` |
 | Дисциплина | `discipline` | `courses.items`, кафедра или программа |
 | Партнёр практики | `practice_partner` | `educationalProgram.practice[]` |
-| Учебный план | `study_plan` | `educationalProgram.plan` |
+| Учебный план | `curriculum` | `educationalProgram.plan` |
 | Документ плана | `study_plan_document` | публичный файл Yandex |
 
 Ключевые связи:
@@ -122,10 +123,11 @@ BMSTU/
 `semantics.py` оставлен фасадом и оркестратором. Такой разрез сохраняет
 общие правила балансировки и позволяет тестировать их через отдельные seams.
 
-В API чтение datasets также вынесено за seam: `DatasetRepository` выбирает
-DuckDB reader по умолчанию или явный построчный `file` fallback. DuckDB
-выполняет count/page/filter/search SQL-запросами непосредственно по CSV/JSONL;
-файлы остаются каноническим источником и не превращаются в вторую базу.
+В API чтение datasets также вынесено за seam: `DatasetRepository` ограничивает
+имена и пути allowlist-каталогом и читает namespaced CSV/JSONL построчно. Этот
+seam оставляет возможность подключить DuckDB/Parquet для больших каталогов без
+изменения маршрутов; файлы остаются каноническим источником и не превращаются
+в вторую базу.
 `JobManager` принимает абстракцию `JobStore`; production default — SQLite с
 восстановлением прерванных операций, а `InMemoryJobStore` используется для
 лёгких тестов. `ScrapePipeline` принимает API, normalizer, resolver factory и
@@ -148,6 +150,13 @@ ID имеют форму `university:<university_id>:<entity_type>:<hash>`. Hash
 из устойчивого business key; позиция массива не используется, кроме
 детерминированного разрешения настоящей коллизии. `id_aliases.json` связывает
 исторические BMSTU IDs с новыми.
+
+`UniversityPipeline` не знает URL, JSON-поля или правила BMSTU. BMSTU-specific
+raw parsing, mappings и операции учебных планов находятся в
+`universities/bmstu/adapter`; на границе plugin они переводятся в `Source*`
+DTO и затем материализуются только canonical dataclass-моделями. Балансировка
+detail-запросов, общий rate limiter, retry/backoff, checkpoint, atomic writers
+и lineage реализованы в platform runtime.
 
 ## Отдельный слой учебных планов
 

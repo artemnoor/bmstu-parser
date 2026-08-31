@@ -26,6 +26,12 @@ class DatasetSpec:
 
 DATASET_SPECS = (
     DatasetSpec(
+        "universities",
+        Path("canonical/universities.csv"),
+        "csv",
+        "Канонические университеты",
+    ),
+    DatasetSpec(
         "faculties",
         Path("canonical/faculties.csv"),
         "csv",
@@ -67,6 +73,13 @@ DATASET_SPECS = (
     ),
     DatasetSpec(
         "disciplines", Path("canonical/disciplines.csv"), "csv", "Дисциплины и нагрузка"
+    ),
+    DatasetSpec("semesters", Path("canonical/semesters.csv"), "csv", "Семестры"),
+    DatasetSpec(
+        "semester_loads",
+        Path("canonical/semester_loads.csv"),
+        "csv",
+        "Нагрузка по семестрам",
     ),
     DatasetSpec(
         "majors", Path("majors.csv"), "csv", "Совместимый projection направлений"

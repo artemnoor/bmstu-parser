@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -10,11 +10,19 @@ from .capabilities import CAPABILITY_NAMES
 
 
 @dataclass(frozen=True, slots=True)
+class ResolverSpec:
+    """A typed resolver declaration loaded from a plugin YAML file."""
+
+    type: str
+    parameters: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
 class PluginConfig:
     university_id: str
     display_name: str
     capabilities: dict[str, bool]
-    resolvers: dict[str, tuple[str, ...]]
+    resolvers: dict[str, tuple[ResolverSpec, ...]]
     settings: dict[str, Any]
 
 
@@ -38,12 +46,24 @@ def load_plugin_config(path: Path) -> PluginConfig:
     if unknown_capabilities:
         raise ValueError(f"Unknown capabilities: {sorted(unknown_capabilities)}")
     if not isinstance(resolvers, dict) or not all(
-        isinstance(key, str)
-        and isinstance(value, list)
-        and all(isinstance(item, str) for item in value)
+        isinstance(key, str) and isinstance(value, list)
         for key, value in resolvers.items()
     ):
-        raise ValueError("resolvers must map fields to lists of hook names")
+        raise ValueError("resolvers must map fields to lists of typed specs")
+    parsed_resolvers: dict[str, tuple[ResolverSpec, ...]] = {}
+    for field_name, values in resolvers.items():
+        specs: list[ResolverSpec] = []
+        for value in values:
+            if isinstance(value, str):
+                specs.append(ResolverSpec(type=value))
+                continue
+            if not isinstance(value, dict) or not isinstance(value.get("type"), str):
+                raise TypeError(f"resolver {field_name!r} must contain a string 'type'")
+            parameters = {
+                str(key): item for key, item in value.items() if key != "type"
+            }
+            specs.append(ResolverSpec(type=str(value["type"]), parameters=parameters))
+        parsed_resolvers[field_name] = tuple(specs)
     if not isinstance(settings, dict):
         raise TypeError("settings must be a mapping")
     university_id = str(payload.get("university_id", "")).strip()
@@ -54,6 +74,6 @@ def load_plugin_config(path: Path) -> PluginConfig:
         university_id=university_id,
         display_name=display_name,
         capabilities=dict(capabilities),
-        resolvers={key: tuple(value) for key, value in resolvers.items()},
+        resolvers=parsed_resolvers,
         settings=dict(settings),
     )

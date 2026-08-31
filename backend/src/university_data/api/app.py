@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hmac
+import json
 import re
 from collections.abc import Callable
 from contextlib import asynccontextmanager
@@ -10,12 +11,11 @@ from uuid import uuid4
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 
-from bmstu_parser.api.job_store import SqliteJobStore
-from bmstu_parser.api.jobs import JobManager, OperationConflictError
-
 from .. import __version__
 from ..registry import REGISTRY
 from .config import ApiSettings
+from .job_store import SqliteJobStore
+from .jobs import JobManager, OperationConflictError
 from .models import (
     DatasetDescriptor,
     DatasetPage,
@@ -27,6 +27,17 @@ from .operations import execute_operation
 from .repository import DatasetNotFoundError, DatasetRepository, DatasetUnavailableError
 
 SERVICE_NAME = "university-data-api"
+DATASET_CAPABILITIES = {
+    "programs": "programs",
+    "study_directions": "programs",
+    "curricula": "curricula",
+    "faculties": "faculties",
+    "departments": "departments",
+    "admission": "admission",
+    "admission_requirements": "admission",
+    "tuition_options": "tuition",
+    "teachers": "teachers",
+}
 
 
 def create_app(
@@ -111,6 +122,24 @@ def create_app(
         plugin = plugin_for(university_id)
         return DatasetRepository(api_settings.result_dir, plugin.university_id)
 
+    def capability_status(plugin: Any) -> dict[str, str]:
+        capabilities = plugin.capabilities().as_dict()
+        result = {
+            key: "published" if value else "not_supported"
+            for key, value in capabilities.items()
+        }
+        report_path = (
+            api_settings.result_dir / plugin.university_id / "quality" / "report.json"
+        )
+        try:
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            statuses = report.get("capability_status", {})
+            if isinstance(statuses, dict):
+                result.update({str(key): str(value) for key, value in statuses.items()})
+        except (OSError, json.JSONDecodeError):
+            pass
+        return result
+
     def page_dataset(
         university_id: str,
         name: str,
@@ -170,10 +199,7 @@ def create_app(
                     university_id=plugin.university_id,
                     display_name=plugin.display_name,
                     capabilities=capabilities,
-                    capability_status={
-                        key: "published" if value else "not_supported"
-                        for key, value in capabilities.items()
-                    },
+                    capability_status=capability_status(plugin),
                     data_ready=(path / "quality/report.json").is_file()
                     or (path / "parse_report.json").is_file(),
                 )
@@ -193,10 +219,7 @@ def create_app(
             university_id=plugin.university_id,
             display_name=plugin.display_name,
             capabilities=capabilities,
-            capability_status={
-                key: "published" if value else "not_supported"
-                for key, value in capabilities.items()
-            },
+            capability_status=capability_status(plugin),
             data_ready=(path / "quality/report.json").is_file()
             or (path / "parse_report.json").is_file(),
         )
@@ -237,6 +260,9 @@ def create_app(
         program_id: str | None = None,
         department_id: str | None = None,
     ) -> DatasetPage:
+        capability = DATASET_CAPABILITIES.get(name)
+        if capability:
+            require_capability(university_id, capability)
         return page_dataset(
             university_id,
             name,

@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from bmstu_parser.runtime.atomic import atomic_text_writer, atomic_write_json
+from ..runtime.atomic import atomic_text_writer, atomic_write_json
 
 
 class UniversityStorage:

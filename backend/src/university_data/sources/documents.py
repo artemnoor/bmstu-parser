@@ -1,6 +1,6 @@
 """PDF/DOCX reader seam shared by university plugins."""
 
-from bmstu_parser.study_plans.readers import (
+from .readers import (
     DoclingDocumentReader,
     DocumentReader,
     NativeDocumentReader,

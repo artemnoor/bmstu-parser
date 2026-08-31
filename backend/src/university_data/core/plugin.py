@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
 from .capabilities import UniversityCapabilities
+from .config import ResolverSpec
 
 
 @dataclass(frozen=True, slots=True)
@@ -22,6 +23,13 @@ class SourceProvider(Protocol):
     capability: str
 
     def fetch(self) -> list[Any]: ...
+
+
+@runtime_checkable
+class UniversityOperations(Protocol):
+    """University-specific long-running operations behind a plugin seam."""
+
+    def execute(self, request: Any, result_dir: Path) -> dict[str, Any]: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,6 +53,10 @@ class UniversityPlugin(Protocol):
 
     def capabilities(self) -> UniversityCapabilities: ...
 
-    def providers(self) -> UniversityProviders: ...
+    def providers(self, options: Any | None = None) -> UniversityProviders: ...
 
     def config(self) -> UniversityConfig: ...
+
+    def resolver_specs(self, field: str) -> tuple[ResolverSpec, ...]: ...
+
+    def operations(self) -> UniversityOperations: ...

@@ -2,11 +2,14 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..domain.ids import global_stable_id
+
 
 def build_ontology(
     university_id: str, records: dict[str, list[dict[str, Any]]]
 ) -> dict[str, Any]:
     type_names = {
+        "universities": "university",
         "faculties": "faculty",
         "departments": "department",
         "study_directions": "study_direction",
@@ -16,6 +19,8 @@ def build_ontology(
         "admission_requirements": "admission_requirement",
         "tuition_options": "tuition_option",
         "disciplines": "discipline",
+        "semesters": "semester",
+        "semester_loads": "semester_load",
     }
     objects_by_id: dict[str, dict[str, Any]] = {}
     links: list[dict[str, Any]] = []
@@ -39,18 +44,23 @@ def build_ontology(
                         properties[key] = value
                 previous = properties.get("provenance", {})
                 incoming = item.get("provenance", {})
+                merged_provenance = dict(previous) if isinstance(previous, dict) else {}
+                incoming_provenance = incoming if isinstance(incoming, dict) else {}
+                for key, value in incoming_provenance.items():
+                    if key != "sources" and value not in (None, ""):
+                        merged_provenance.setdefault(key, value)
                 sources = (
-                    list(previous.get("sources", []))
-                    if isinstance(previous, dict)
+                    list(merged_provenance.get("sources", []))
+                    if isinstance(merged_provenance.get("sources"), list)
                     else []
                 )
-                for source in (
-                    incoming.get("sources", []) if isinstance(incoming, dict) else []
-                ):
+                for source in incoming_provenance.get("sources", []):
                     if source not in sources:
                         sources.append(source)
                 if sources:
-                    properties["provenance"] = {"sources": sources}
+                    merged_provenance["sources"] = sources
+                if merged_provenance:
+                    properties["provenance"] = merged_provenance
             for field_name, target_type in (
                 ("university_id", "university"),
                 ("study_direction_id", "study_direction"),
@@ -61,6 +71,8 @@ def build_ontology(
                 ("semester_id", "semester"),
             ):
                 target = item.get(field_name)
+                if field_name == "university_id" and target:
+                    target = global_stable_id(university_id, "university", target)
                 if target:
                     links.append(
                         {
@@ -73,11 +85,7 @@ def build_ontology(
                     )
     objects = list(objects_by_id.values())
     known = {item["id"] for item in objects}
-    links = [
-        link
-        for link in links
-        if link["to"] in known or link["target_type"] == "university"
-    ]
+    links = [link for link in links if link["to"] in known]
     return {
         "schema_version": "1.0",
         "university_id": university_id,

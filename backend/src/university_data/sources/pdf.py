@@ -2,9 +2,8 @@
 
 from pathlib import Path
 
-from bmstu_parser.study_plans.readers import ReaderResult
-
 from .documents import NativeDocumentReader
+from .readers import ReaderResult
 
 
 class PdfExtractor:

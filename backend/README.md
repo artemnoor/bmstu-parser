@@ -41,4 +41,5 @@ Runtime dependencies включают `openpyxl` для XLSX без Excel/LibreO
 
 Общие retry/backoff, thread-safe rate limiter, per-thread HTTP sessions,
 balanced detail workers, atomic `.part` downloads, checkpoint/resume и
-lineage остаются в прежней реализации и подключаются через source seams.
+lineage реализованы в `university_data` runtime и подключаются через source
+seams; BMSTU adapter не меняет их поведение.

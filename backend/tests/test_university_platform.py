@@ -67,6 +67,13 @@ def test_fake_pipeline_materializes_metadata_extensions_and_unsupported(
         "fake", PipelineOptions(output_dir=tmp_path, strict=True)
     )
     assert report["verification"]["passed"] is True
+    universities = [
+        json.loads(line)
+        for line in (tmp_path / "fake/canonical/universities.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    ]
+    assert universities[0]["id"].startswith("university:fake:university:")
     assert report["capability_status"]["departments"] == "not_supported"
     teachers = [
         json.loads(line)
@@ -105,6 +112,11 @@ def test_scoped_api_exposes_capabilities_and_removes_flat_routes(
         unsupported = client.get("/api/v1/universities/fake/departments")
         assert unsupported.status_code == 404
         assert unsupported.json()["detail"]["code"] == "capability_unavailable"
+        unsupported_rows = client.get(
+            "/api/v1/universities/fake/datasets/departments/rows"
+        )
+        assert unsupported_rows.status_code == 404
+        assert unsupported_rows.json()["detail"]["code"] == "capability_unavailable"
         assert client.get("/api/v1/programs").status_code == 404
         assert client.get("/api/v1/universities/unknown").status_code == 404
 

@@ -12,6 +12,7 @@ class SourceRecord:
     source_key: str = ""
     raw: dict[str, Any] = field(default_factory=dict)
     provenance: SourceProvenance = field(default_factory=SourceProvenance)
+    extensions: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,6 +43,8 @@ class SourceAdmissionRequirement(SourceRecord):
     subject: str = ""
     minimum_score: int | None = None
     is_choice: bool | None = None
+    program_key: str = ""
+    study_direction_key: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,6 +53,8 @@ class SourceTuition(SourceRecord):
     value: str | int | float | None = None
     currency: str = ""
     term: str = ""
+    program_key: str = ""
+    study_direction_key: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,6 +72,7 @@ class SourceDiscipline(SourceRecord):
     total_hours: int | float | None = None
     credits: int | float | None = None
     components: dict[str, int | float | None] = field(default_factory=dict)
+    semester: int | str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,3 +81,16 @@ class SourceTeacher(SourceRecord):
     position: str = ""
     department_key: str = ""
     email: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class SourceSemester(SourceRecord):
+    number: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class SourceSemesterLoad(SourceRecord):
+    discipline_key: str = ""
+    semester: int = 0
+    hours: int | float | None = None
+    credits: int | float | None = None

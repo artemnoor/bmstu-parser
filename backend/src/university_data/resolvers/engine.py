@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Generic, Literal, Protocol, TypeVar
+
+from ..core.config import ResolverSpec
 
 ResolutionStatus = Literal[
     "published", "derived", "not_published", "ambiguous", "invalid"
@@ -113,3 +116,43 @@ class ResolverChain(Generic[T]):
             if result.status == "ambiguous":
                 return result
         return last
+
+
+ResolverBuilder = Callable[[ResolverSpec], Resolver[Any]]
+
+
+def build_resolver_chain(
+    specs: tuple[ResolverSpec, ...],
+    *,
+    custom: Mapping[str, ResolverBuilder] | None = None,
+) -> ResolverChain[Any]:
+    """Build a resolver chain from typed config and registered Python hooks."""
+
+    custom = custom or {}
+
+    def direct(spec: ResolverSpec) -> Resolver[int | float]:
+        return DirectValueResolver(str(spec.parameters.get("field", "total_hours")))
+
+    def sum_components(spec: ResolverSpec) -> Resolver[int | float]:
+        return SumHourComponentsResolver(
+            str(spec.parameters.get("field", "components"))
+        )
+
+    def credits_to_hours(spec: ResolverSpec) -> Resolver[int | float]:
+        value = spec.parameters.get("hours_per_credit", 36)
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise TypeError("hours_per_credit must be numeric")
+        return CreditsToHoursResolver(float(value))
+
+    builtins: dict[str, ResolverBuilder] = {
+        "direct": direct,
+        "sum_components": sum_components,
+        "credits_to_hours": credits_to_hours,
+    }
+    resolvers: list[Resolver[Any]] = []
+    for spec in specs:
+        builder = custom.get(spec.type) or builtins.get(spec.type)
+        if builder is None:
+            raise ValueError(f"Unknown resolver type: {spec.type}")
+        resolvers.append(builder(spec))
+    return ResolverChain(resolvers)

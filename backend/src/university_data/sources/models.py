@@ -8,6 +8,8 @@ from ..core.source_models import (
     SourceFaculty,
     SourceProgram,
     SourceRecord,
+    SourceSemester,
+    SourceSemesterLoad,
     SourceTeacher,
     SourceTuition,
 )
@@ -20,6 +22,8 @@ __all__ = [
     "SourceFaculty",
     "SourceProgram",
     "SourceRecord",
+    "SourceSemester",
+    "SourceSemesterLoad",
     "SourceTeacher",
     "SourceTuition",
 ]

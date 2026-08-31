@@ -3,10 +3,11 @@ from __future__ import annotations
 import json
 import tempfile
 from pathlib import Path
+from typing import Any
 
 from ...core.capabilities import UniversityCapabilities
-from ...core.config import load_plugin_config
-from ...core.plugin import UniversityConfig, UniversityProviders
+from ...core.config import ResolverSpec, load_plugin_config
+from ...core.plugin import UniversityConfig, UniversityOperations, UniversityProviders
 from ...core.source_models import (
     SourceAdmissionRequirement,
     SourceCurriculum,
@@ -60,6 +61,9 @@ class FakeTeachersProvider:
                 department_key=str(item.get("department", "")),
                 email=str(item.get("email", "")),
                 raw=item,
+                extensions={"teacher_rating": item["teacher_rating"]}
+                if "teacher_rating" in item
+                else {},
                 provenance=_provenance(str(item["id"]), "fixtures/teachers.json"),
             )
             for item in payload
@@ -135,7 +139,7 @@ class FakeUniversityPlugin:
         config = load_plugin_config(ROOT / "config.yaml")
         return UniversityCapabilities(**config.capabilities)
 
-    def providers(self) -> UniversityProviders:
+    def providers(self, options: object | None = None) -> UniversityProviders:
         return UniversityProviders(
             programs=FakeProgramsProvider(),
             curricula=FakeCurriculumProvider(),
@@ -152,6 +156,16 @@ class FakeUniversityPlugin:
             settings=config.settings,
         )
 
-    def resolver_names(self, field: str) -> tuple[str, ...]:
+    def resolver_specs(self, field: str) -> tuple[ResolverSpec, ...]:
         config = load_plugin_config(ROOT / "config.yaml")
         return config.resolvers.get(field, ())
+
+    def operations(self) -> UniversityOperations:
+        return _UnsupportedOperations()
+
+
+class _UnsupportedOperations:
+    def execute(self, request: Any, result_dir: Path) -> dict[str, Any]:
+        raise ValueError(
+            "Fake University exposes refresh only; this operation is not supported"
+        )

@@ -10,23 +10,20 @@ from .core.source_models import (
     SourceAdmissionRequirement,
     SourceCurriculum,
     SourceDepartment,
+    SourceDiscipline,
     SourceFaculty,
     SourceProgram,
+    SourceSemester,
+    SourceSemesterLoad,
     SourceTeacher,
     SourceTuition,
 )
-from .domain.ids import global_stable_id
-from .domain.provenance import FieldMeta
+from .domain.provenance import SourceProvenance
 from .normalization import CanonicalNormalizer
 from .ontology import build_ontology
 from .quality import build_quality_report
-from .resolvers import (
-    CreditsToHoursResolver,
-    DirectValueResolver,
-    Resolver,
-    ResolverChain,
-    SumHourComponentsResolver,
-)
+from .resolvers import build_resolver_chain
+from .runtime import PipelineRun
 from .storage import UniversityStorage
 
 
@@ -47,11 +44,11 @@ def _now() -> str:
 
 
 class UniversityPipeline:
-    """University-neutral orchestration seam.
+    """Materialize every registered university through one typed pipeline.
 
-    Providers produce DTOs; only this module materializes canonical records.
-    A plugin may expose an optional ``run_legacy`` seam for a source whose
-    mature pipeline already owns specialized ingestion behavior.
+    Providers only return source DTOs. Canonical domain dataclasses are the
+    sole materialization contract, so ontology, quality and storage consume a
+    consistent schema regardless of the source adapter.
     """
 
     def __init__(
@@ -68,13 +65,20 @@ class UniversityPipeline:
     ) -> dict[str, Any]:
         options = options or PipelineOptions()
         plugin = self.registry.require(university_id)
-        legacy_runner = getattr(plugin, "run_legacy", None)
-        if callable(legacy_runner):
-            return legacy_runner(options)
-
+        university_id = plugin.university_id
+        pipeline_run = PipelineRun(
+            options.output_dir / university_id, "university_pipeline"
+        )
         capabilities = plugin.capabilities()
-        providers = plugin.providers()
+        providers = plugin.providers(options)
         records: dict[str, list[dict[str, Any]]] = {
+            "universities": [
+                self.normalizer.university(
+                    university_id,
+                    plugin.display_name,
+                    SourceProvenance(source_key=university_id),
+                ).to_dict()
+            ],
             "faculties": [],
             "departments": [],
             "study_directions": [],
@@ -84,6 +88,8 @@ class UniversityPipeline:
             "admission_requirements": [],
             "tuition_options": [],
             "disciplines": [],
+            "semesters": [],
+            "semester_loads": [],
         }
         errors: list[str] = []
 
@@ -96,83 +102,19 @@ class UniversityPipeline:
                 continue
             try:
                 source_items = provider.fetch()
-            except Exception as exc:  # noqa: BLE001  # provider boundary is reported by quality
-                errors.append(f"{capability}: {type(exc).__name__}: {exc}")
-                continue
-            if capability == "faculties":
-                records["faculties"] = [
-                    self._faculty(university_id, item)
-                    for item in source_items
-                    if isinstance(item, SourceFaculty)
-                ]
-            elif capability == "departments":
-                records["departments"] = [
-                    self._department(university_id, item)
-                    for item in source_items
-                    if isinstance(item, SourceDepartment)
-                ]
-            elif capability == "programs":
-                programs = []
-                directions: dict[str, dict[str, Any]] = {}
-                for item in source_items:
-                    if not isinstance(item, SourceProgram):
-                        continue
-                    direction_key = item.study_direction_key or item.code or item.name
-                    direction_id = global_stable_id(
-                        university_id, "study_direction", direction_key
-                    )
-                    directions.setdefault(
-                        direction_key,
-                        {
-                            "id": direction_id,
-                            "university_id": university_id,
-                            "name": direction_key,
-                            "code": direction_key,
-                            "field_meta": {
-                                "name": FieldMeta(
-                                    "derived", "source_key", 0.5
-                                ).to_dict()
-                            },
-                            "extensions": {},
-                            "provenance": item.provenance.to_dict(),
-                        },
-                    )
-                    programs.append(self.normalizer.program(university_id, item))
-                records["study_directions"] = list(directions.values())
-                records["programs"] = programs
-            elif capability == "teachers":
-                teachers = []
-                for item in source_items:
-                    if not isinstance(item, SourceTeacher):
-                        continue
-                    row = self.normalizer.teacher(university_id, item)
-                    raw = item.raw
-                    if "teacher_rating" in raw:
-                        row["extensions"] = {
-                            "fake": {"teacher_rating": raw["teacher_rating"]}
-                        }
-                    teachers.append(row)
-                records["teachers"] = teachers
-            elif capability == "admission":
-                records["admission_requirements"] = [
-                    self._admission(university_id, item)
-                    for item in source_items
-                    if isinstance(item, SourceAdmissionRequirement)
-                ]
-            elif capability == "tuition":
-                records["tuition_options"] = [
-                    self._tuition(university_id, item)
-                    for item in source_items
-                    if isinstance(item, SourceTuition)
-                ]
-            elif capability == "curricula":
-                records["curricula"], records["disciplines"] = self._curricula(
-                    university_id, source_items, plugin
+                self._materialize_capability(
+                    university_id, capability, source_items, plugin, records
                 )
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"{capability}: {type(exc).__name__}: {exc}")
 
         ontology = build_ontology(university_id, records)
         quality = build_quality_report(
-            university_id, capabilities.as_dict(), records, errors=errors
+            university_id,
+            capabilities.as_dict(),
+            records,
+            errors=errors,
+            ontology=ontology,
         )
         storage = UniversityStorage(options.output_dir, university_id)
         storage.ensure()
@@ -190,195 +132,210 @@ class UniversityPipeline:
         for name, items in records.items():
             storage.write_jsonl(f"canonical/{name}.jsonl", items)
             storage.write_csv(f"canonical/{name}.csv", items)
-        storage.write_json(
-            "pipeline_runs/latest.json",
-            {
-                "status": "succeeded"
-                if quality["verification"]["passed"]
-                else "failed",
-                "university_id": university_id,
-                "quality": quality,
-                "finished_at_utc": _now(),
+        pipeline_run.stage(
+            "source_ingestion",
+            inputs=["raw"],
+            outputs=["raw"],
+            metadata={"capabilities": capabilities.as_dict()},
+        )
+        pipeline_run.stage(
+            "canonical_materialization",
+            inputs=["raw"],
+            outputs=["canonical"],
+            metadata={"records": {name: len(items) for name, items in records.items()}},
+        )
+        pipeline_run.stage(
+            "ontology_projection",
+            inputs=["canonical"],
+            outputs=["ontology.json"],
+            metadata={
+                "objects": len(ontology.get("objects", [])),
+                "links": len(ontology.get("links", [])),
             },
+        )
+        pipeline_run.stage(
+            "quality_gate",
+            inputs=["canonical", "ontology.json"],
+            outputs=["quality/report.json"],
+            quality=quality,
+        )
+        pipeline_run.finish(
+            status="succeeded" if quality["verification"]["passed"] else "failed",
+            quality=quality,
         )
         if options.strict and not quality["verification"]["passed"]:
             raise RuntimeError(f"Quality gate failed for {university_id}")
         return quality
 
-    def _admission(
-        self, university_id: str, source: SourceAdmissionRequirement
-    ) -> dict[str, Any]:
-        program_key = source.raw.get("program", "")
-        program_id = global_stable_id(university_id, "program", program_key)
-        identifier = global_stable_id(
-            university_id, "admission_requirement", source.source_key or source.subject
-        )
-        return {
-            "id": identifier,
-            "university_id": university_id,
-            "program_id": program_id,
-            "subject": source.subject,
-            "minimum_score": source.minimum_score,
-            "is_choice": source.is_choice,
-            "field_meta": {
-                "minimum_score": FieldMeta(
-                    "published"
-                    if source.minimum_score is not None
-                    else "not_published",
-                    "source",
-                    1.0 if source.minimum_score is not None else 0.0,
-                ).to_dict()
-            },
-            "extensions": {},
-            "provenance": source.provenance.to_dict(),
-        }
+    def _materialize_capability(
+        self,
+        university_id: str,
+        capability: str,
+        source_items: list[Any],
+        plugin: Any,
+        records: dict[str, list[dict[str, Any]]],
+    ) -> None:
+        if capability == "faculties":
+            records["faculties"] = [
+                self.normalizer.faculty(university_id, item).to_dict()
+                for item in source_items
+                if isinstance(item, SourceFaculty)
+            ]
+            return
+        if capability == "departments":
+            records["departments"] = [
+                self.normalizer.department(university_id, item).to_dict()
+                for item in source_items
+                if isinstance(item, SourceDepartment)
+            ]
+            return
+        if capability == "programs":
+            self._programs(university_id, source_items, records)
+            return
+        if capability == "teachers":
+            records["teachers"] = [
+                self.normalizer.teacher(university_id, item).to_dict()
+                for item in source_items
+                if isinstance(item, SourceTeacher)
+            ]
+            return
+        if capability == "admission":
+            records["admission_requirements"] = [
+                self.normalizer.admission(university_id, item).to_dict()
+                for item in source_items
+                if isinstance(item, SourceAdmissionRequirement)
+            ]
+            return
+        if capability == "tuition":
+            records["tuition_options"] = [
+                self.normalizer.tuition(university_id, item).to_dict()
+                for item in source_items
+                if isinstance(item, SourceTuition)
+            ]
+            return
+        if capability == "curricula":
+            curricula, disciplines, semesters, loads = self._curricula(
+                university_id, source_items, plugin
+            )
+            records["curricula"] = curricula
+            records["disciplines"] = disciplines
+            records["semesters"] = semesters
+            records["semester_loads"] = loads
 
-    def _faculty(self, university_id: str, source: SourceFaculty) -> dict[str, Any]:
-        identifier = global_stable_id(
-            university_id, "faculty", source.source_key or source.code or source.name
-        )
-        return {
-            "id": identifier,
-            "university_id": university_id,
-            "name": source.name,
-            "code": source.code,
-            "field_meta": {
-                "name": FieldMeta("published", "source", 1.0).to_dict(),
-                "code": FieldMeta(
-                    "published" if source.code else "not_published",
-                    "source",
-                    1.0 if source.code else 0.0,
-                ).to_dict(),
-            },
-            "extensions": {},
-            "provenance": source.provenance.to_dict(),
-        }
-
-    def _department(
-        self, university_id: str, source: SourceDepartment
-    ) -> dict[str, Any]:
-        identifier = global_stable_id(
-            university_id, "department", source.source_key or source.code or source.name
-        )
-        return {
-            "id": identifier,
-            "university_id": university_id,
-            "name": source.name,
-            "code": source.code,
-            "faculty_id": (
-                global_stable_id(university_id, "faculty", source.faculty_key)
-                if source.faculty_key
-                else ""
-            ),
-            "field_meta": {
-                "name": FieldMeta("published", "source", 1.0).to_dict(),
-                "code": FieldMeta(
-                    "published" if source.code else "not_published",
-                    "source",
-                    1.0 if source.code else 0.0,
-                ).to_dict(),
-            },
-            "extensions": {},
-            "provenance": source.provenance.to_dict(),
-        }
-
-    def _tuition(self, university_id: str, source: SourceTuition) -> dict[str, Any]:
-        program_key = str(source.raw.get("program", ""))
-        return {
-            "id": global_stable_id(
+    def _programs(
+        self,
+        university_id: str,
+        source_items: list[Any],
+        records: dict[str, list[dict[str, Any]]],
+    ) -> None:
+        programs: list[dict[str, Any]] = []
+        directions: dict[str, dict[str, Any]] = {}
+        for item in source_items:
+            if not isinstance(item, SourceProgram):
+                continue
+            direction_key = item.study_direction_key or item.code or item.name
+            raw_name = str(item.raw.get("study_direction_name", "")).strip()
+            raw_code = str(item.raw.get("study_direction_code", "")).strip()
+            direction = self.normalizer.study_direction(
                 university_id,
-                "tuition_option",
-                source.source_key or source.study_form,
-            ),
-            "university_id": university_id,
-            "program_id": (
-                global_stable_id(university_id, "program", program_key)
-                if program_key
-                else ""
-            ),
-            "study_form": source.study_form,
-            "value": source.value,
-            "currency": source.currency,
-            "term": source.term,
-            "field_meta": {
-                "value": FieldMeta(
-                    "published" if source.value is not None else "not_published",
-                    "source",
-                    1.0 if source.value is not None else 0.0,
-                ).to_dict()
-            },
-            "extensions": {},
-            "provenance": source.provenance.to_dict(),
-        }
+                key=direction_key,
+                name=raw_name or direction_key,
+                code=raw_code or direction_key,
+                provenance=item.provenance,
+            ).to_dict()
+            directions.setdefault(direction_key, direction)
+            programs.append(self.normalizer.program(university_id, item).to_dict())
+        records["study_directions"] = list(directions.values())
+        records["programs"] = programs
 
     def _curricula(
         self, university_id: str, source_items: list[Any], plugin: Any
-    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    ) -> tuple[
+        list[dict[str, Any]],
+        list[dict[str, Any]],
+        list[dict[str, Any]],
+        list[dict[str, Any]],
+    ]:
         curricula: list[dict[str, Any]] = []
         disciplines: list[dict[str, Any]] = []
-        resolver_names = getattr(
-            plugin, "resolver_names", lambda _field: ("direct", "sum_components")
-        )("total_hours")
-        resolver_map: dict[str, Resolver[int | float]] = {
-            "direct": DirectValueResolver(),
-            "sum_components": SumHourComponentsResolver(),
-            "credits_to_hours": CreditsToHoursResolver(),
-        }
-        chain: ResolverChain[int | float] = ResolverChain(
-            [resolver_map[name] for name in resolver_names if name in resolver_map]
-        )
+        semesters: dict[int, dict[str, Any]] = {}
+        semester_loads: list[dict[str, Any]] = []
+        chain = build_resolver_chain(plugin.resolver_specs("total_hours"))
         for source in source_items:
             if not isinstance(source, SourceCurriculum):
                 continue
-            curriculum_id = global_stable_id(
-                university_id, "curriculum", source.source_key
-            )
-            program_id = global_stable_id(university_id, "program", source.program_key)
             curricula.append(
-                {
-                    "id": curriculum_id,
-                    "university_id": university_id,
-                    "program_id": program_id,
-                    "name": source.name,
-                    "source_path": str(source.path or ""),
-                    "field_meta": {
-                        "name": FieldMeta("published", "source", 1.0).to_dict()
-                    },
-                    "extensions": {},
-                    "provenance": source.provenance.to_dict(),
-                }
+                self.normalizer.curriculum(university_id, source).to_dict()
             )
-            for row in source.rows:
+            for index, row in enumerate(source.rows):
                 name = str(row.get("discipline", "")).strip()
                 if not name:
                     continue
-                source_values = {
-                    "total_hours": row.get("hours"),
-                    "components": row.get("components", {}),
-                    "credits": row.get("credits"),
-                }
-                resolution = chain.resolve(source_values)
-                discipline_id = global_stable_id(university_id, "discipline", name)
-                disciplines.append(
+                source_discipline = SourceDiscipline(
+                    source_key=f"{source.source_key}:{name}:{index}",
+                    name=name,
+                    code=str(row.get("code", "") or ""),
+                    credits=self._number(row.get("credits")),
+                    components=row.get("components", {})
+                    if isinstance(row.get("components", {}), dict)
+                    else {},
+                    semester=row.get("semester"),
+                    raw=row,
+                    provenance=source.provenance,
+                )
+                resolution = chain.resolve(
                     {
-                        "id": discipline_id,
-                        "university_id": university_id,
-                        "name": name,
-                        "code": str(row.get("code", "") or ""),
-                        "total_hours": resolution.value,
-                        "credits": row.get("credits"),
-                        "semester": row.get("semester"),
-                        "field_meta": {
-                            "total_hours": {
-                                "status": resolution.status,
-                                "method": resolution.method,
-                                "confidence": resolution.confidence,
-                                "sources": resolution.sources,
-                                "warnings": resolution.warnings,
-                            }
-                        },
-                        "extensions": {},
-                        "provenance": source.provenance.to_dict(),
+                        "total_hours": self._number(row.get("hours")),
+                        "components": source_discipline.components,
+                        "credits": source_discipline.credits,
                     }
                 )
-        return curricula, disciplines
+                canonical_discipline = self.normalizer.discipline(
+                    university_id, source_discipline, resolution
+                )
+                disciplines.append(canonical_discipline.to_dict())
+                semester = self._semester_number(source_discipline.semester)
+                if semester is None:
+                    continue
+                semester_source = SourceSemester(
+                    source_key=str(semester),
+                    number=semester,
+                    raw={"number": semester},
+                    provenance=source.provenance,
+                )
+                semesters.setdefault(
+                    semester,
+                    self.normalizer.semester(university_id, semester_source).to_dict(),
+                )
+                load_source = SourceSemesterLoad(
+                    source_key=f"{source_discipline.source_key}:{semester}",
+                    discipline_key=source_discipline.source_key,
+                    semester=semester,
+                    hours=resolution.value,
+                    credits=source_discipline.credits,
+                    raw=row,
+                    provenance=source.provenance,
+                )
+                semester_loads.append(
+                    self.normalizer.semester_load(university_id, load_source).to_dict()
+                )
+        return curricula, disciplines, list(semesters.values()), semester_loads
+
+    @staticmethod
+    def _number(value: Any) -> int | float | None:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return None
+        return value
+
+    @staticmethod
+    def _semester_number(value: Any) -> int | None:
+        if isinstance(value, bool):
+            return None
+        if isinstance(value, int):
+            return value if value > 0 else None
+        if isinstance(value, float) and value.is_integer() and value > 0:
+            return int(value)
+        if isinstance(value, str) and value.strip().isdigit():
+            number = int(value.strip())
+            return number if number > 0 else None
+        return None

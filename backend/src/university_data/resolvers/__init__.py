@@ -5,6 +5,7 @@ from .engine import (
     Resolver,
     ResolverChain,
     SumHourComponentsResolver,
+    build_resolver_chain,
 )
 
 __all__ = [
@@ -14,4 +15,5 @@ __all__ = [
     "Resolver",
     "ResolverChain",
     "SumHourComponentsResolver",
+    "build_resolver_chain",
 ]

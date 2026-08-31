@@ -11,6 +11,5 @@ python backend/scripts/export_openapi.py
 The contract contains no secrets. Domain balancing remains implemented only in
 the backend semantic layer; the independent frontend consumes its projections.
 
-The contract includes the active dataset engine in `GET /health.data_engine`
-(`duckdb` by default, `file` fallback) and the durable operation schemas. Keep
+The contract includes the scoped dataset and durable operation schemas. Keep
 this file regenerated whenever FastAPI routes or Pydantic models change.

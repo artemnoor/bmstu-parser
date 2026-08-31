@@ -97,6 +97,7 @@ class Discipline(_Canonical):
     code: str = ""
     total_hours: int | float | None = None
     credits: int | float | None = None
+    semester: int | str | None = None
     field_meta: dict[str, FieldMeta] = field(default_factory=dict)
     extensions: dict[str, dict[str, Any]] = field(default_factory=dict)
     provenance: SourceProvenance = field(default_factory=SourceProvenance)
@@ -142,8 +143,9 @@ class SemesterLoad(_Canonical):
 class AdmissionRequirement(_Canonical):
     id: str
     university_id: str
-    program_id: str
     subject: str
+    program_id: str = ""
+    study_direction_id: str = ""
     minimum_score: int | None = None
     is_choice: bool | None = None
     field_meta: dict[str, FieldMeta] = field(default_factory=dict)
@@ -155,8 +157,9 @@ class AdmissionRequirement(_Canonical):
 class TuitionOption(_Canonical):
     id: str
     university_id: str
-    program_id: str
     study_form: str
+    program_id: str = ""
+    study_direction_id: str = ""
     value: Decimal | None = None
     currency: str = ""
     term: str = ""
