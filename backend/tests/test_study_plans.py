@@ -8,7 +8,12 @@ from bmstu_parser.study_plans.semantics import _semantic_row
 
 class StudyPlanTests(unittest.TestCase):
     def test_curriculum_row_keeps_all_cell_values(self) -> None:
-        table = {"id": "table-1", "document_id": "document-1", "page_number": 2, "section": "curriculum"}
+        table = {
+            "id": "table-1",
+            "document_id": "document-1",
+            "page_number": 2,
+            "section": "curriculum",
+        }
         cells = [
             {"id": "cell-1", "text": "1"},
             {"id": "cell-2", "text": "Иностранный язык"},
@@ -18,11 +23,22 @@ class StudyPlanTests(unittest.TestCase):
         row = curriculum_row_record(table, 5, cells)
         self.assertEqual(row["row_role"], "discipline")
         self.assertEqual(row["code"], "1")
-        self.assertEqual([cell["text"] for cell in row["cells"]], ["1", "Иностранный язык", "Л3", "12"])
+        self.assertEqual(
+            [cell["text"] for cell in row["cells"]],
+            ["1", "Иностранный язык", "Л3", "12"],
+        )
 
     def test_quality_gate_checks_all_references_for_deduplicated_document(self) -> None:
-        canonical = {"document_id": "doc-1", "local_path": "study_plans/a.pdf", "program_id": "program-1"}
-        secondary = {"document_id": "doc-1", "local_path": "study_plans/a.pdf", "program_id": "program-2"}
+        canonical = {
+            "document_id": "doc-1",
+            "local_path": "study_plans/a.pdf",
+            "program_id": "program-1",
+        }
+        secondary = {
+            "document_id": "doc-1",
+            "local_path": "study_plans/a.pdf",
+            "program_id": "program-2",
+        }
         result = {
             "document": {
                 "document_id": "doc-1",
@@ -45,7 +61,9 @@ class StudyPlanTests(unittest.TestCase):
             cell_count=1,
             all_references=[canonical, secondary],
         )
-        self.assertTrue(quality["verification"]["canonical_document_count_matches_manifest"])
+        self.assertTrue(
+            quality["verification"]["canonical_document_count_matches_manifest"]
+        )
         self.assertTrue(quality["verification"]["all_manifest_references_attached"])
         self.assertEqual(quality["counts"]["manifest_references"], 2)
 
@@ -74,7 +92,23 @@ class StudyPlanTests(unittest.TestCase):
             "semester_count": 2,
             "semester_headers": {1: {"weeks": 17}, 2: {"weeks": 17}},
         }
-        values = ["1", "Математика", "МТ", "4", "144", "68", "34", "34", "0", "76", "4", "144", "68", "76", "Экз"]
+        values = [
+            "1",
+            "Математика",
+            "МТ",
+            "4",
+            "144",
+            "68",
+            "34",
+            "34",
+            "0",
+            "76",
+            "4",
+            "144",
+            "68",
+            "76",
+            "Экз",
+        ]
         cells = []
         words = {}
         for index, value in enumerate(values):
@@ -91,7 +125,14 @@ class StudyPlanTests(unittest.TestCase):
                     "word_ids": [word_id],
                 }
             )
-            words[word_id] = {"id": word_id, "text": value, "x0": left + 0.5, "x1": right - 0.5, "top": 1, "bottom": 2}
+            words[word_id] = {
+                "id": word_id,
+                "text": value,
+                "x0": left + 0.5,
+                "x1": right - 0.5,
+                "top": 1,
+                "bottom": 2,
+            }
         row, discipline, loads = _semantic_row(
             table,
             4,
@@ -150,7 +191,14 @@ class StudyPlanTests(unittest.TestCase):
                     "word_ids": [word_id],
                 }
             )
-            words[word_id] = {"id": word_id, "text": value, "x0": left + 1, "x1": right - 1, "top": 1, "bottom": 2}
+            words[word_id] = {
+                "id": word_id,
+                "text": value,
+                "x0": left + 1,
+                "x1": right - 1,
+                "top": 1,
+                "bottom": 2,
+            }
 
         cells.append(
             {
@@ -184,7 +232,9 @@ class StudyPlanTests(unittest.TestCase):
         self.assertEqual(loads[2]["control_kinds"], ["credit"])
         self.assertIsNone(loads[3]["credits"])
         self.assertEqual(loads[3]["control_tokens"], [])
-        self.assertIn("control_token_removed_from_credits", loads[3]["normalization_notes"])
+        self.assertIn(
+            "control_token_removed_from_credits", loads[3]["normalization_notes"]
+        )
 
 
 if __name__ == "__main__":

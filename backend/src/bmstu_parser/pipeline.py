@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Protocol
 
 from .config import LIST_ENDPOINT, Settings
 from .ingestion.http import ApiClient
@@ -20,15 +20,28 @@ def utc_now() -> str:
 
 
 class ScrapePipeline:
-    def __init__(self, settings: Settings) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        *,
+        client: ApiClient | None = None,
+        api: "MirrorApiPort" | None = None,
+        normalizer: Normalizer | None = None,
+        resolver_factory: Callable[[ApiClient, Path], StudyPlanResolver] | None = None,
+        ontology_builder: OntologyBuilder | None = None,
+    ) -> None:
         self.settings = settings
-        self.client = ApiClient(timeout=settings.timeout, delay=settings.delay)
-        self.api = MirrorApi(
+        self.client = client or ApiClient(
+            timeout=settings.timeout, delay=settings.delay
+        )
+        self.api = api or MirrorApi(
             self.client,
             workers=settings.workers,
             page_size=settings.page_size,
         )
-        self.normalizer = Normalizer()
+        self.normalizer = normalizer or Normalizer()
+        self.resolver_factory = resolver_factory or StudyPlanResolver
+        self.ontology_builder = ontology_builder or OntologyBuilder()
 
     def run(self) -> dict[str, Any]:
         output_dir = Path(self.settings.output_dir)
@@ -39,14 +52,14 @@ class ScrapePipeline:
             details = self.api.fetch_details(summaries)
             majors = [self.normalizer.normalize(item) for item in details]
 
-            resolver = StudyPlanResolver(self.client, output_dir)
+            resolver = self.resolver_factory(self.client, output_dir)
             resolver.enrich(
                 majors,
                 resolve=self.settings.resolve_plans,
                 download=self.settings.download_plans,
             )
 
-            ontology = OntologyBuilder().build(majors)
+            ontology = self.ontology_builder.build(majors)
             quality = validate_dataset(summaries, list_meta, details, majors, ontology)
             write_dataset(
                 output_dir,
@@ -84,16 +97,32 @@ class ScrapePipeline:
                 "ontology_projection",
                 inputs=["bmstu_bachelor_majors.json"],
                 outputs=["ontology.json"],
-                metadata={"objects": quality["counts"]["ontology_objects"], "links": quality["counts"]["ontology_links"]},
+                metadata={
+                    "objects": quality["counts"]["ontology_objects"],
+                    "links": quality["counts"]["ontology_links"],
+                },
             )
             run.stage(
                 "quality_gate",
-                inputs=["raw/majors_list.json", "bmstu_bachelor_majors.json", "ontology.json"],
+                inputs=[
+                    "raw/majors_list.json",
+                    "bmstu_bachelor_majors.json",
+                    "ontology.json",
+                ],
                 outputs=["parse_report.json"],
                 quality=quality,
             )
-            run.finish(status="succeeded" if quality["verification"]["passed"] else "failed", quality=quality)
+            run.finish(
+                status="succeeded" if quality["verification"]["passed"] else "failed",
+                quality=quality,
+            )
             return quality
         except Exception as exc:
             run.finish(status="failed", error=f"{type(exc).__name__}: {exc}")
             raise
+
+
+class MirrorApiPort(Protocol):
+    def fetch_major_list(self) -> tuple[list[dict[str, Any]], dict[str, Any]]: ...
+
+    def fetch_details(self, summaries: list[dict[str, Any]]) -> list[Any]: ...

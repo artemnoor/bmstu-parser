@@ -1,0 +1,95 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend · Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.12']
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+      - name: Install package and development tools
+        run: python -m pip install --upgrade pip && python -m pip install -e ".[dev]"
+      - name: Ruff lint
+        run: ruff check src tests
+      - name: Ruff format
+        run: ruff format --check src tests
+      - name: Mypy typed core
+        run: >-
+          mypy src/bmstu_parser/domain
+          src/bmstu_parser/api/repository.py
+          src/bmstu_parser/api/job_store.py
+          --ignore-missing-imports
+      - name: Unit and integration tests
+        run: >-
+          python -m pytest -q -p no:cacheprovider
+          --cov=bmstu_parser.domain
+          --cov=bmstu_parser.api.config
+          --cov=bmstu_parser.api.models
+          --cov=bmstu_parser.api.jobs
+          --cov=bmstu_parser.api.job_store
+          --cov=bmstu_parser.api.repository
+          --cov=bmstu_parser.transform
+          --cov=bmstu_parser.study_plans.semantic_curriculum
+          --cov=bmstu_parser.study_plans.semantic_geometry
+          --cov=bmstu_parser.study_plans.semantic_io
+          --cov=bmstu_parser.study_plans.semantic_ontology
+          --cov=bmstu_parser.study_plans.semantic_quality
+          --cov=bmstu_parser.study_plans.semantic_reconciliation
+          --cov=bmstu_parser.study_plans.semantic_schema
+          --cov=bmstu_parser.study_plans.semantic_shared
+          --cov=bmstu_parser.study_plans.semantics
+          --cov-fail-under=80
+      - name: Verify DuckDB runtime adapter
+        run: >-
+          python -c "from pathlib import Path; from bmstu_parser.api.repository import DatasetRepository;
+          import tempfile; p=Path(tempfile.mkdtemp()); (p/'majors.csv').write_text('id,name\n1,Smoke\n', encoding='utf-8');
+          r=DatasetRepository(p, engine='duckdb'); assert r.engine == 'duckdb'; assert r.page('majors', offset=0, limit=1)['total'] == 1"
+
+  docker:
+    name: Docker · Poppler smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build API image
+        run: docker build --tag bmstu-parser-ci --file backend/Dockerfile backend
+      - name: Check native PDF dependency
+        run: docker run --rm bmstu-parser-ci sh -c 'command -v pdftotext && pdftotext -v'
+
+  frontend:
+    name: Frontend · Playwright smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install browser test dependencies
+        working-directory: frontend
+        run: npm ci && npx playwright install --with-deps chromium
+      - name: Run browser smoke
+        working-directory: frontend
+        run: npm run test:e2e

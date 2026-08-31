@@ -88,7 +88,9 @@ class ApiClient:
         destination.parent.mkdir(parents=True, exist_ok=True)
         temporary = destination.with_name(f".{destination.name}.part")
         try:
-            with self._session().get(url, timeout=self.timeout, stream=True) as response:
+            with self._session().get(
+                url, timeout=self.timeout, stream=True
+            ) as response:
                 response.raise_for_status()
                 with temporary.open("wb") as output:
                     for chunk in response.iter_content(chunk_size=1024 * 128):
@@ -104,4 +106,3 @@ class ApiClient:
             if temporary.exists():
                 temporary.unlink()
             raise FetchError(f"Сохранение {destination}: {exc}") from exc
-

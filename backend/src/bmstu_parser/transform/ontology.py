@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-from dataclasses import asdict
 from typing import Any
 
 from ..domain.ids import link_id, stable_id
 from ..domain.models import Major, SourceProvenance
+from ..domain.provenance import merge_provenance, provenance_dict
 
 
 def _provenance(value: SourceProvenance) -> dict[str, Any]:
-    return asdict(value)
+    return provenance_dict(value)
 
 
 class OntologyBuilder:
@@ -28,7 +28,7 @@ class OntologyBuilder:
     ) -> str:
         identifier = object_id or stable_id(object_type, natural_key)
         bucket = self.objects.setdefault(object_type, {})
-        candidate = {
+        candidate: dict[str, Any] = {
             "id": identifier,
             "object_type": object_type,
             "properties": properties,
@@ -39,6 +39,9 @@ class OntologyBuilder:
             bucket[identifier] = candidate
         else:
             existing["properties"] = self._merge(existing["properties"], properties)
+            existing["provenance"] = merge_provenance(
+                existing["provenance"], candidate["provenance"]
+            )
         return identifier
 
     def add_link(
@@ -50,17 +53,24 @@ class OntologyBuilder:
         properties: dict[str, Any] | None = None,
     ) -> str:
         identifier = link_id(link_type, from_id, to_id)
-        self.links.setdefault(
-            identifier,
-            {
-                "id": identifier,
-                "link_type": link_type,
-                "from_id": from_id,
-                "to_id": to_id,
-                "properties": properties or {},
-                "provenance": _provenance(provenance),
-            },
-        )
+        candidate: dict[str, Any] = {
+            "id": identifier,
+            "link_type": link_type,
+            "from_id": from_id,
+            "to_id": to_id,
+            "properties": properties or {},
+            "provenance": _provenance(provenance),
+        }
+        existing = self.links.get(identifier)
+        if existing is None:
+            self.links[identifier] = candidate
+        else:
+            existing["properties"] = self._merge(
+                existing["properties"], candidate["properties"]
+            )
+            existing["provenance"] = merge_provenance(
+                existing["provenance"], candidate["provenance"]
+            )
         return identifier
 
     @staticmethod
@@ -70,7 +80,11 @@ class OntologyBuilder:
             if value in (None, "", [], {}):
                 continue
             if isinstance(value, list) and isinstance(merged.get(key), list):
-                merged[key] = list(dict.fromkeys([*merged[key], *value]))
+                values = list(merged[key])
+                for item in value:
+                    if item not in values:
+                        values.append(item)
+                merged[key] = values
             elif key not in merged or merged[key] in (None, "", [], {}):
                 merged[key] = value
         return merged
@@ -117,7 +131,9 @@ class OntologyBuilder:
                 faculty.provenance,
                 object_id=faculty.id,
             )
-            self.add_link("major_offered_by_faculty", major_id, faculty_id, major.provenance)
+            self.add_link(
+                "major_offered_by_faculty", major_id, faculty_id, major.provenance
+            )
 
         for requirement in major.entrance_requirements:
             requirement_id = self.add_object(
@@ -129,11 +145,19 @@ class OntologyBuilder:
                     "minimum_score": requirement.minimum_score,
                     "is_choice": requirement.is_choice,
                     "requirement_type": requirement.requirement_type,
+                    "legacy_id": requirement.legacy_id,
+                    "minimum_score_raw": requirement.minimum_score_raw,
+                    "normalization_warnings": requirement.normalization_warnings,
                 },
                 requirement.provenance,
                 object_id=requirement.id,
             )
-            self.add_link("major_requires_entrance_subject", major_id, requirement_id, requirement.provenance)
+            self.add_link(
+                "major_requires_entrance_subject",
+                major_id,
+                requirement_id,
+                requirement.provenance,
+            )
 
         for tuition in major.tuition:
             tuition_id = self.add_object(
@@ -148,21 +172,36 @@ class OntologyBuilder:
                     "term": tuition.term,
                     "discount_url": tuition.discount_url,
                     "subtitle": tuition.subtitle,
+                    "legacy_id": tuition.legacy_id,
+                    "value_raw": tuition.value_raw,
+                    "discount_value_raw": tuition.discount_value_raw,
+                    "normalization_warnings": tuition.normalization_warnings,
                 },
                 tuition.provenance,
                 object_id=tuition.id,
             )
-            self.add_link("major_has_tuition_option", major_id, tuition_id, tuition.provenance)
+            self.add_link(
+                "major_has_tuition_option", major_id, tuition_id, tuition.provenance
+            )
 
         for place in major.places:
             place_id = self.add_object(
                 "admission_place",
                 place.id,
-                {"source_key": place.id, "type": place.place_type, "count": place.count},
+                {
+                    "source_key": place.id,
+                    "type": place.place_type,
+                    "count": place.count,
+                    "legacy_id": place.legacy_id,
+                    "count_raw": place.count_raw,
+                    "normalization_warnings": place.normalization_warnings,
+                },
                 place.provenance,
                 object_id=place.id,
             )
-            self.add_link("major_has_admission_place", major_id, place_id, place.provenance)
+            self.add_link(
+                "major_has_admission_place", major_id, place_id, place.provenance
+            )
 
         for score in major.historical_passing_scores:
             score_id = self.add_object(
@@ -174,11 +213,20 @@ class OntologyBuilder:
                     "score": score.score,
                     "department_id": score.department_id,
                     "department_name": score.department_name,
+                    "legacy_id": score.legacy_id,
+                    "year_raw": score.year_raw,
+                    "score_raw": score.score_raw,
+                    "normalization_warnings": score.normalization_warnings,
                 },
                 score.provenance,
                 object_id=score.id,
             )
-            self.add_link("major_has_historical_passing_score", major_id, score_id, score.provenance)
+            self.add_link(
+                "major_has_historical_passing_score",
+                major_id,
+                score_id,
+                score.provenance,
+            )
 
         for discipline in major.key_disciplines:
             discipline_id = self.add_object(
@@ -187,7 +235,9 @@ class OntologyBuilder:
                 {"source_key": discipline, "name": discipline, "scope": "major"},
                 major.provenance,
             )
-            self.add_link("major_has_discipline", major_id, discipline_id, major.provenance)
+            self.add_link(
+                "major_has_discipline", major_id, discipline_id, major.provenance
+            )
 
         for department in major.departments:
             department_id = self.add_object(
@@ -212,25 +262,47 @@ class OntologyBuilder:
                 department.provenance,
                 object_id=department.id,
             )
-            self.add_link("major_prepared_by_department", major_id, department_id, department.provenance)
+            self.add_link(
+                "major_prepared_by_department",
+                major_id,
+                department_id,
+                department.provenance,
+            )
             if department.faculty_id:
                 faculty_id = self.add_object(
                     "faculty",
                     department.faculty_id,
-                    {"source_key": department.faculty_id, "name": department.faculty_name},
+                    {
+                        "source_key": department.faculty_id,
+                        "name": department.faculty_name,
+                    },
                     department.provenance,
                     object_id=department.faculty_id,
                 )
-                self.add_link("department_part_of_faculty", department_id, faculty_id, department.provenance)
+                self.add_link(
+                    "department_part_of_faculty",
+                    department_id,
+                    faculty_id,
+                    department.provenance,
+                )
 
             for discipline in department.key_disciplines:
                 discipline_id = self.add_object(
                     "discipline",
                     (department.id, discipline),
-                    {"source_key": discipline, "name": discipline, "scope": "department"},
+                    {
+                        "source_key": discipline,
+                        "name": discipline,
+                        "scope": "department",
+                    },
                     department.provenance,
                 )
-                self.add_link("department_teaches_discipline", department_id, discipline_id, department.provenance)
+                self.add_link(
+                    "department_teaches_discipline",
+                    department_id,
+                    discipline_id,
+                    department.provenance,
+                )
 
             for score in department.historical_passing_scores:
                 score_id = self.add_object(
@@ -246,7 +318,12 @@ class OntologyBuilder:
                     score.provenance,
                     object_id=score.id,
                 )
-                self.add_link("department_has_historical_passing_score", department_id, score_id, score.provenance)
+                self.add_link(
+                    "department_has_historical_passing_score",
+                    department_id,
+                    score_id,
+                    score.provenance,
+                )
 
             for program in department.educational_programs:
                 self._program(major_id, department_id, program)
@@ -267,12 +344,17 @@ class OntologyBuilder:
                 "description": program.description,
                 "disciplines": program.disciplines,
                 "study_plan_url": program.study_plan_url,
+                "legacy_id": program.legacy_id,
             },
             program.provenance,
             object_id=program.id,
         )
-        self.add_link("major_has_educational_program", major_id, program_id, program.provenance)
-        self.add_link("department_runs_program", department_id, program_id, program.provenance)
+        self.add_link(
+            "major_has_educational_program", major_id, program_id, program.provenance
+        )
+        self.add_link(
+            "department_runs_program", department_id, program_id, program.provenance
+        )
 
         for discipline in program.disciplines:
             discipline_id = self.add_object(
@@ -281,7 +363,12 @@ class OntologyBuilder:
                 {"source_key": discipline, "name": discipline, "scope": "program"},
                 program.provenance,
             )
-            self.add_link("program_contains_discipline", program_id, discipline_id, program.provenance)
+            self.add_link(
+                "program_contains_discipline",
+                program_id,
+                discipline_id,
+                program.provenance,
+            )
 
         if program.study_plan_url or program.study_plan.status != "missing":
             plan_id = self.add_object(
@@ -297,7 +384,9 @@ class OntologyBuilder:
                 program.provenance,
                 object_id=stable_id("study-plan", program.id),
             )
-            self.add_link("program_has_study_plan", program_id, plan_id, program.provenance)
+            self.add_link(
+                "program_has_study_plan", program_id, plan_id, program.provenance
+            )
             for file_info in program.study_plan.files:
                 document_id = self.add_object(
                     "study_plan_document",
@@ -317,11 +406,18 @@ class OntologyBuilder:
                         "downloaded": file_info.downloaded,
                         "downloaded_size": file_info.downloaded_size,
                         "download_error": file_info.download_error,
+                        "size_raw": file_info.size_raw,
+                        "normalization_warnings": file_info.normalization_warnings,
                     },
                     program.provenance,
                     object_id=file_info.id,
                 )
-                self.add_link("study_plan_contains_document", plan_id, document_id, program.provenance)
+                self.add_link(
+                    "study_plan_contains_document",
+                    plan_id,
+                    document_id,
+                    program.provenance,
+                )
 
         for partner in program.practice_partners:
             partner_id = self.add_object(
@@ -336,5 +432,9 @@ class OntologyBuilder:
                 partner.provenance,
                 object_id=partner.id,
             )
-            self.add_link("program_has_practice_partner", program_id, partner_id, partner.provenance)
-
+            self.add_link(
+                "program_has_practice_partner",
+                program_id,
+                partner_id,
+                partner.provenance,
+            )

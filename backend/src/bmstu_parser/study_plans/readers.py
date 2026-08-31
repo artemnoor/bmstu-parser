@@ -13,8 +13,7 @@ ReaderResult = tuple[list[dict[str, Any]], list[dict[str, Any]], str, list[str]]
 class DocumentReader(Protocol):
     name: str
 
-    def extract(self, path: Path, document_id: str) -> ReaderResult:
-        ...
+    def extract(self, path: Path, document_id: str) -> ReaderResult: ...
 
 
 class NativeDocumentReader:
@@ -44,7 +43,12 @@ def _docling_bbox(value: dict[str, Any]) -> tuple[dict[str, float] | None, int |
             continue
         if all(key in bbox for key in ("l", "t", "r", "b")):
             return (
-                {"x0": float(bbox["l"]), "top": float(bbox["t"]), "x1": float(bbox["r"]), "bottom": float(bbox["b"])},
+                {
+                    "x0": float(bbox["l"]),
+                    "top": float(bbox["t"]),
+                    "x1": float(bbox["r"]),
+                    "bottom": float(bbox["b"]),
+                },
                 _int_or_none(item.get("page_no")),
             )
         if all(key in bbox for key in ("x0", "top", "x1", "bottom")):
@@ -77,7 +81,9 @@ def _table_section(column_count: int, bbox: dict[str, float] | None) -> str:
 def _docling_text(data: dict[str, Any]) -> str:
     values: list[str] = []
     for collection in ("texts", "titles", "groups"):
-        for item in data.get(collection, []) if isinstance(data.get(collection), list) else []:
+        for item in (
+            data.get(collection, []) if isinstance(data.get(collection), list) else []
+        ):
             if isinstance(item, dict) and str(item.get("text", "")).strip():
                 values.append(str(item["text"]).strip())
     return "\n".join(values)
@@ -112,7 +118,11 @@ class DoclingDocumentReader:
     def extract(self, path: Path, document_id: str) -> ReaderResult:
         result = self._converter().convert(path)
         document = getattr(result, "document", result)
-        data = document.export_to_dict() if hasattr(document, "export_to_dict") else document
+        data = (
+            document.export_to_dict()
+            if hasattr(document, "export_to_dict")
+            else document
+        )
         if not isinstance(data, dict):
             raise RuntimeError("Docling вернул неподдерживаемую структуру документа")
 
@@ -140,11 +150,23 @@ class DoclingDocumentReader:
             bbox, page_number = _docling_bbox(table)
             page_number = page_number or 1
             page_numbers.add(page_number)
-            table_id = stable_id("study-plan-table", document_id, page_number, table_index)
-            table_data = table.get("data") if isinstance(table.get("data"), dict) else {}
-            grid = table_data.get("grid") if isinstance(table_data.get("grid"), list) else []
+            table_id = stable_id(
+                "study-plan-table", document_id, page_number, table_index
+            )
+            table_data = (
+                table.get("data") if isinstance(table.get("data"), dict) else {}
+            )
+            grid = (
+                table_data.get("grid")
+                if isinstance(table_data.get("grid"), list)
+                else []
+            )
             if not grid:
-                cells = table_data.get("table_cells") if isinstance(table_data.get("table_cells"), list) else []
+                cells = (
+                    table_data.get("table_cells")
+                    if isinstance(table_data.get("table_cells"), list)
+                    else []
+                )
                 rows_by_index: dict[int, list[dict[str, Any]]] = {}
                 for cell in cells:
                     if not isinstance(cell, dict):
@@ -165,7 +187,9 @@ class DoclingDocumentReader:
                     if raw_cell is None:
                         cell_row.append(
                             {
-                                "id": stable_id("study-plan-cell", table_id, row_index, column_index),
+                                "id": stable_id(
+                                    "study-plan-cell", table_id, row_index, column_index
+                                ),
                                 "table_id": table_id,
                                 "row_index": row_index,
                                 "column_index": column_index,
@@ -176,18 +200,26 @@ class DoclingDocumentReader:
                             }
                         )
                         continue
-                    cell = raw_cell if isinstance(raw_cell, dict) else {"text": str(raw_cell)}
+                    cell = (
+                        raw_cell
+                        if isinstance(raw_cell, dict)
+                        else {"text": str(raw_cell)}
+                    )
                     cell_bbox, _ = _docling_bbox(cell)
                     cell_row.append(
                         {
-                            "id": stable_id("study-plan-cell", table_id, row_index, column_index),
+                            "id": stable_id(
+                                "study-plan-cell", table_id, row_index, column_index
+                            ),
                             "table_id": table_id,
                             "row_index": row_index,
                             "column_index": column_index,
                             "text": str(cell.get("text", "")),
                             "bbox": cell_bbox,
                             "word_ids": [],
-                            "cell_kind": "docling_header_cell" if cell.get("column_header") else "docling_cell",
+                            "cell_kind": "docling_header_cell"
+                            if cell.get("column_header")
+                            else "docling_cell",
                         }
                     )
                 rows.append(cell_row)
@@ -197,7 +229,9 @@ class DoclingDocumentReader:
                 "document_id": document_id,
                 "page_number": page_number,
                 "table_index": table_index,
-                "section": _table_section(max((len(row) for row in rows), default=0), bbox),
+                "section": _table_section(
+                    max((len(row) for row in rows), default=0), bbox
+                ),
                 "bbox": bbox,
                 "row_count": len(rows),
                 "column_count": max((len(row) for row in rows), default=0),
@@ -207,14 +241,27 @@ class DoclingDocumentReader:
             tables.append(record)
             pages.setdefault(
                 page_number,
-                {"page_number": page_number, "width": None, "height": None, "words": [], "lines": [], "table_ids": []},
+                {
+                    "page_number": page_number,
+                    "width": None,
+                    "height": None,
+                    "words": [],
+                    "lines": [],
+                    "table_ids": [],
+                },
             )["table_ids"].append(table_id)
 
         page_records = [pages[number] for number in sorted(page_numbers or {1})]
-        warnings = ["Docling не предоставляет word-level anchors; семантическая привязка использует cell fallback"]
+        warnings = [
+            "Docling не предоставляет word-level anchors; семантическая привязка использует cell fallback"
+        ]
         if not tables:
             warnings.append("Docling не обнаружил таблицы")
-        layout_text = document.export_to_markdown() if hasattr(document, "export_to_markdown") else _docling_text(data)
+        layout_text = (
+            document.export_to_markdown()
+            if hasattr(document, "export_to_markdown")
+            else _docling_text(data)
+        )
         return page_records, tables, str(layout_text), warnings
 
 
@@ -227,4 +274,3 @@ def get_reader_backend(backend: str | DocumentReader) -> DocumentReader:
     if normalized == "docling":
         return DoclingDocumentReader()
     raise ValueError(f"Неподдерживаемый reader backend: {backend}")
-

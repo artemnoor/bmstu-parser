@@ -12,6 +12,7 @@ services:
       BMSTU_ENV: ${BMSTU_ENV:-development}
       BMSTU_API_KEY: ${BMSTU_API_KEY:-}
       BMSTU_CORS_ORIGINS: ${BMSTU_CORS_ORIGINS:-}
+      BMSTU_DATA_ENGINE: ${BMSTU_DATA_ENGINE:-duckdb}
     volumes:
       - ../data/result:/app/data/result
     healthcheck:

@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from ..outputs.writers import write_json
+from ..domain.types import json_default
 from ..runtime.atomic import atomic_text_writer
 from ..transform.text import json_cell, safe_filename
 from .ids import row_id
@@ -14,7 +15,14 @@ from .ids import row_id
 def write_jsonl(path: Path, records: Iterable[dict[str, Any]]) -> None:
     with atomic_text_writer(path, encoding="utf-8") as stream:
         for record in records:
-            stream.write(json.dumps(record, ensure_ascii=False, separators=(",", ":")))
+            stream.write(
+                json.dumps(
+                    record,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                    default=json_default,
+                )
+            )
             stream.write("\n")
 
 
@@ -89,7 +97,11 @@ def write_extraction_dataset(
         document["raw_layout_path"] = str(layout_path.relative_to(output_dir))
 
     documents = [result["document"] for result in results]
-    pages = [page | {"document_id": result["document"]["document_id"]} for result in results for page in result.get("pages", [])]
+    pages = [
+        page | {"document_id": result["document"]["document_id"]}
+        for result in results
+        for page in result.get("pages", [])
+    ]
     tables = [
         {
             "id": table["id"],
@@ -100,7 +112,10 @@ def write_extraction_dataset(
             "bbox": table.get("bbox"),
             "row_count": table.get("row_count", 0),
             "column_count": table.get("column_count", 0),
-            "row_ids": [row_id(table["id"], row_index) for row_index, _ in enumerate(table.get("rows", []))],
+            "row_ids": [
+                row_id(table["id"], row_index)
+                for row_index, _ in enumerate(table.get("rows", []))
+            ],
             "extraction_method": table.get("extraction_method", ""),
         }
         for result in results
@@ -121,7 +136,13 @@ def write_extraction_dataset(
     }
     dataset_quality["counts"].update(
         {
-            "unique_tables": len({table["id"] for result in results for table in result.get("tables", [])}),
+            "unique_tables": len(
+                {
+                    table["id"]
+                    for result in results
+                    for table in result.get("tables", [])
+                }
+            ),
             "unique_rows": len({row["id"] for row in rows}),
         }
     )
@@ -132,7 +153,19 @@ def write_extraction_dataset(
     write_csv(
         output_dir / "study_plan_cells.csv",
         cells,
-        ["id", "table_id", "document_id", "page_number", "section", "row_index", "column_index", "text", "bbox", "word_ids", "cell_kind"],
+        [
+            "id",
+            "table_id",
+            "document_id",
+            "page_number",
+            "section",
+            "row_index",
+            "column_index",
+            "text",
+            "bbox",
+            "word_ids",
+            "cell_kind",
+        ],
     )
     write_csv(
         output_dir / "study_plan_rows.csv",
@@ -151,10 +184,26 @@ def write_extraction_dataset(
             }
             for row in rows
         ],
-        ["id", "table_id", "document_id", "page_number", "section", "row_index", "first_cell", "second_cell", "cell_ids", "cell_count"],
+        [
+            "id",
+            "table_id",
+            "document_id",
+            "page_number",
+            "section",
+            "row_index",
+            "first_cell",
+            "second_cell",
+            "cell_ids",
+            "cell_count",
+        ],
     )
-    write_json(output_dir / "study_plan_ontology.json", {"schema_version": "2.0", **ontology})
-    write_json(output_dir / "study_plan_extraction_report.json", {"schema_version": "2.0", **dataset_quality})
+    write_json(
+        output_dir / "study_plan_ontology.json", {"schema_version": "2.0", **ontology}
+    )
+    write_json(
+        output_dir / "study_plan_extraction_report.json",
+        {"schema_version": "2.0", **dataset_quality},
+    )
 
     main_report = output_dir.parent / "parse_report.json"
     if main_report.exists():

@@ -2,17 +2,14 @@ from __future__ import annotations
 
 import logging
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
 from threading import RLock
 from typing import Any, Callable
 from uuid import uuid4
 
+from .job_store import InMemoryJobStore, JobStore, utc_now
+
 
 LOGGER = logging.getLogger(__name__)
-
-
-def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 class OperationConflictError(RuntimeError):
@@ -20,68 +17,82 @@ class OperationConflictError(RuntimeError):
 
 
 class JobManager:
-    """Small in-process operation queue for the early-release service.
+    """Single-writer operation queue backed by a pluggable durable store."""
 
-    Only one mutating parser operation runs at a time. This prevents two
-    writers from rebuilding the same result directory concurrently.
-    """
-
-    def __init__(self) -> None:
-        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="bmstu-api-operation")
+    def __init__(self, *, store: JobStore | None = None) -> None:
+        self.store = store or InMemoryJobStore()
+        self._executor = ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="bmstu-api-operation"
+        )
         self._lock = RLock()
-        self._jobs: dict[str, dict[str, Any]] = {}
         self._active_id: str | None = None
 
-    def submit(self, operation: str, task: Callable[[], dict[str, Any]]) -> dict[str, Any]:
+    def submit(
+        self, operation: str, task: Callable[[], dict[str, Any]]
+    ) -> dict[str, Any]:
         with self._lock:
-            if self._active_id:
-                active = self._jobs.get(self._active_id)
-                if active and active["status"] in {"queued", "running"}:
-                    raise OperationConflictError(f"Уже выполняется операция {active['operation']} ({active['id']})")
+            self.store.prune()
+            active = self.store.active()
+            if active:
+                raise OperationConflictError(
+                    f"Уже выполняется операция {active['operation']} ({active['id']})"
+                )
             identifier = uuid4().hex
             record = {
                 "id": identifier,
                 "operation": operation,
                 "status": "queued",
-                "submitted_at_utc": _now(),
+                "submitted_at_utc": utc_now(),
                 "started_at_utc": None,
                 "finished_at_utc": None,
                 "result": None,
                 "error": None,
             }
-            self._jobs[identifier] = record
+            self.store.create(record)
             self._active_id = identifier
-            self._executor.submit(self._run, identifier, task)
-            return dict(record)
+            try:
+                self._executor.submit(self._run, identifier, task)
+            except Exception as exc:
+                self.store.update(
+                    identifier,
+                    status="failed",
+                    finished_at_utc=utc_now(),
+                    error=f"{type(exc).__name__}: {exc}",
+                )
+                self._active_id = None
+                raise
+            return record
 
     def _run(self, identifier: str, task: Callable[[], dict[str, Any]]) -> None:
-        with self._lock:
-            record = self._jobs[identifier]
-            record["status"] = "running"
-            record["started_at_utc"] = _now()
+        self.store.update(identifier, status="running", started_at_utc=utc_now())
         try:
             result = task()
         except Exception as exc:  # noqa: BLE001 - operation status must be observable through the API.
             LOGGER.exception("BMSTU API operation %s failed", identifier)
+            self.store.update(
+                identifier,
+                status="failed",
+                finished_at_utc=utc_now(),
+                error=f"{type(exc).__name__}: {exc}",
+                result=getattr(exc, "result", None),
+            )
+        else:
+            self.store.update(
+                identifier,
+                status="succeeded",
+                finished_at_utc=utc_now(),
+                result=result,
+            )
+        finally:
             with self._lock:
-                record = self._jobs[identifier]
-                record["status"] = "failed"
-                record["finished_at_utc"] = _now()
-                record["error"] = f"{type(exc).__name__}: {exc}"
-                record["result"] = getattr(exc, "result", None)
-                self._active_id = None
-            return
-        with self._lock:
-            record = self._jobs[identifier]
-            record["status"] = "succeeded"
-            record["finished_at_utc"] = _now()
-            record["result"] = result
-            self._active_id = None
+                if self._active_id == identifier:
+                    self._active_id = None
 
     def get(self, identifier: str) -> dict[str, Any] | None:
-        with self._lock:
-            record = self._jobs.get(identifier)
-            return dict(record) if record else None
+        return self.store.get(identifier)
 
     def shutdown(self) -> None:
-        self._executor.shutdown(wait=False, cancel_futures=True)
+        # Wait for a running task before closing a durable store. Otherwise a
+        # worker can race with SQLite.close() while publishing its final state.
+        self._executor.shutdown(wait=True, cancel_futures=True)
+        self.store.close()

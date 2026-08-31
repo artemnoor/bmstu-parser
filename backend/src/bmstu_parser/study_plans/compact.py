@@ -17,7 +17,9 @@ def _read_jsonl(path: Path) -> list[dict[str, Any]]:
         return [json.loads(line) for line in stream if line.strip()]
 
 
-def _compact_ontology(data_dir: Path, documents: list[dict[str, Any]]) -> dict[str, Any]:
+def _compact_ontology(
+    data_dir: Path, documents: list[dict[str, Any]]
+) -> dict[str, Any]:
     builder = StudyPlanOntologyBuilder()
     documents_by_id = {document["document_id"]: document for document in documents}
     for document in documents:
@@ -66,7 +68,9 @@ def _compact_ontology(data_dir: Path, documents: list[dict[str, Any]]) -> dict[s
                 },
                 provenance,
             )
-            builder.add_link("study_plan_document_for_program", document_id, program_id, provenance)
+            builder.add_link(
+                "study_plan_document_for_program", document_id, program_id, provenance
+            )
 
     tables = _read_jsonl(data_dir / "study_plan_tables.jsonl")
     for table in tables:
@@ -93,7 +97,12 @@ def _compact_ontology(data_dir: Path, documents: list[dict[str, Any]]) -> dict[s
             },
             provenance,
         )
-        builder.add_link("study_plan_document_contains_table", table["document_id"], table["id"], provenance)
+        builder.add_link(
+            "study_plan_document_contains_table",
+            table["document_id"],
+            table["id"],
+            provenance,
+        )
 
     for row in _read_jsonl(data_dir / "study_plan_rows.jsonl"):
         document = documents_by_id[row["document_id"]]
@@ -116,11 +125,16 @@ def _compact_ontology(data_dir: Path, documents: list[dict[str, Any]]) -> dict[s
                 "second_cell": row.get("second_cell", ""),
                 "cell_count": row.get("cell_count", 0),
                 "cells_dataset": "study_plan_cells.csv",
-                "cells_locator": {"table_id": row["table_id"], "row_index": row.get("row_index")},
+                "cells_locator": {
+                    "table_id": row["table_id"],
+                    "row_index": row.get("row_index"),
+                },
             },
             provenance,
         )
-        builder.add_link("study_plan_table_contains_row", row["table_id"], row["id"], provenance)
+        builder.add_link(
+            "study_plan_table_contains_row", row["table_id"], row["id"], provenance
+        )
     return builder.build([])
 
 
@@ -140,7 +154,11 @@ def _compact_existing_dataset(result_dir: Path) -> dict[str, Any]:
     if first_table is not None and "rows" not in first_table:
         quality = json.loads(report_path.read_text(encoding="utf-8"))
         ontology_path = data_dir / "study_plan_ontology.json"
-        existing_ontology = json.loads(ontology_path.read_text(encoding="utf-8")) if ontology_path.exists() else {}
+        existing_ontology = (
+            json.loads(ontology_path.read_text(encoding="utf-8"))
+            if ontology_path.exists()
+            else {}
+        )
         # The current writer already emits compact tables/rows. Preserve the
         # semantic discipline/load objects if the semantic enrichment block
         # has already extended Ontology; rebuilding only the base layer would
@@ -157,7 +175,10 @@ def _compact_existing_dataset(result_dir: Path) -> dict[str, Any]:
     ontology_builder = StudyPlanOntologyBuilder()
     table_count = 0
     cell_count = 0
-    with compact_table_path.open("w", encoding="utf-8") as table_output, compact_row_path.open("w", encoding="utf-8") as row_output:
+    with (
+        compact_table_path.open("w", encoding="utf-8") as table_output,
+        compact_row_path.open("w", encoding="utf-8") as row_output,
+    ):
         for table in _read_jsonl(table_path):
             if table["id"] in seen_tables:
                 continue
@@ -173,10 +194,15 @@ def _compact_existing_dataset(result_dir: Path) -> dict[str, Any]:
                 "bbox": table.get("bbox"),
                 "row_count": table.get("row_count", len(table_rows)),
                 "column_count": table.get("column_count", 0),
-                "row_ids": [row_id(table["id"], row_index) for row_index, _ in enumerate(table_rows)],
+                "row_ids": [
+                    row_id(table["id"], row_index)
+                    for row_index, _ in enumerate(table_rows)
+                ],
                 "extraction_method": table.get("extraction_method", ""),
             }
-            table_output.write(json.dumps(lean_table, ensure_ascii=False, separators=(",", ":")) + "\n")
+            table_output.write(
+                json.dumps(lean_table, ensure_ascii=False, separators=(",", ":")) + "\n"
+            )
             document = documents_by_id[table["document_id"]]
             ontology_builder.build([{"document": document, "tables": [table]}])
             for row_index, cells in enumerate(table_rows):
@@ -196,13 +222,26 @@ def _compact_existing_dataset(result_dir: Path) -> dict[str, Any]:
                     "cell_count": len(cells),
                 }
                 rows.append(row)
-                row_output.write(json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n")
+                row_output.write(
+                    json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n"
+                )
 
     compact_rows_csv = data_dir / "study_plan_rows.csv.compact"
     write_csv(
         compact_rows_csv,
         rows,
-        ["id", "table_id", "document_id", "page_number", "section", "row_index", "first_cell", "second_cell", "cell_ids", "cell_count"],
+        [
+            "id",
+            "table_id",
+            "document_id",
+            "page_number",
+            "section",
+            "row_index",
+            "first_cell",
+            "second_cell",
+            "cell_ids",
+            "cell_count",
+        ],
     )
     compact_table_path.replace(data_dir / "study_plan_tables.jsonl")
     compact_row_path.replace(data_dir / "study_plan_rows.jsonl")
@@ -222,11 +261,16 @@ def _compact_existing_dataset(result_dir: Path) -> dict[str, Any]:
     quality["counts"]["unique_rows"] = len(rows)
     quality["counts"]["cells"] = cell_count
     write_json(report_path, quality)
-    write_json(data_dir / "study_plan_ontology.json", {"schema_version": "2.0", **ontology_builder.build([])})
+    write_json(
+        data_dir / "study_plan_ontology.json",
+        {"schema_version": "2.0", **ontology_builder.build([])},
+    )
     # A legacy table compaction must not silently erase the semantic Ontology
     # layer created by extract-study-plan-semantics. Rebuild it from the
     # compacted source datasets when that layer already exists.
-    if (data_dir / "study_plan_disciplines.jsonl").exists() and (data_dir / "study_plan_semester_load.csv").exists():
+    if (data_dir / "study_plan_disciplines.jsonl").exists() and (
+        data_dir / "study_plan_semester_load.csv"
+    ).exists():
         from .semantics import enrich_existing_dataset
 
         enrich_existing_dataset(result_dir)
@@ -259,7 +303,12 @@ def compact_existing_dataset(result_dir: Path) -> dict[str, Any]:
             ],
             quality=quality,
         )
-        run.finish(status="succeeded" if quality.get("verification", {}).get("passed", True) else "failed", quality=quality)
+        run.finish(
+            status="succeeded"
+            if quality.get("verification", {}).get("passed", True)
+            else "failed",
+            quality=quality,
+        )
         return quality
     except Exception as exc:
         run.finish(status="failed", error=f"{type(exc).__name__}: {exc}")

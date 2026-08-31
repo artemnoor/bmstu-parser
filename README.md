@@ -16,6 +16,15 @@ python -m pip install -e .
 python -m bmstu_parser --output ..\data\result --download-plans --strict
 ```
 
+Для разработки установите quality-инструменты:
+
+```powershell
+python -m pip install -e ".[dev]"
+ruff check src tests
+ruff format --check src tests
+python -m pytest -q
+```
+
 Без `--download-plans` ссылки и метаданные учебных планов будут разобраны, но файлы не будут скачаны. Для быстрой проверки можно использовать `--no-resolve-plans`.
 
 Извлечение всех таблиц из уже скачанных планов запускается отдельным блоком:
@@ -46,6 +55,22 @@ python -m bmstu_parser api --result ..\data\result --host 127.0.0.1 --port 8000
 ```
 
 После запуска доступны Swagger UI (`/docs`), ReDoc (`/redoc`) и OpenAPI-контракт (`/openapi.json`). Полное описание endpoints находится в [`docs/API.md`](docs/API.md). Для фоновых операций задайте `BMSTU_API_KEY`; они выполняются последовательно и возвращают наблюдаемый `operation_id`.
+
+API читает CSV/JSONL через DuckDB по умолчанию, не загружая крупные datasets
+целиком в память. Для совместимости можно выбрать построчный fallback:
+`$env:BMSTU_DATA_ENGINE = "file"`. Фактически выбранный режим виден в
+`GET /health` (`data_engine`). Состояние фоновых операций сохраняется в
+`data/result/pipeline_runs/operations.sqlite3`; незавершённые операции после
+перезапуска помечаются как прерванные, а история ограничивается по TTL и
+размеру. Лимиты настраиваются через `BMSTU_OPERATION_MAX_RECORDS` и
+`BMSTU_OPERATION_TTL_SECONDS`.
+
+После нормализации рядом с основным результатом создаётся
+`data/result/id_aliases.json`. Он сохраняет соответствия старых и новых ID:
+новые идентификаторы устойчивы к перестановке элементов API, а позиционный
+fallback применяется только при коллизии. В canonical domain числовые поля
+типизированы, но исходные значения и предупреждения не теряются. Ontology
+provenance накапливает список `sources` при слиянии наблюдений.
 
 Каждый запуск parser/extraction/semantic-stage оставляет манифест в `data/result/pipeline_runs/`: этапы, входы, выходы, SHA-256, счётчики и quality gate. Историю можно запросить через `GET /api/v1/runs`.
 
@@ -105,3 +130,6 @@ python -m bmstu_parser compact-study-plans --result ..\data\result
 Полная таблица не дублируется в Ontology JSON: все значения хранятся в `study_plan_cells.csv`, а Ontology и строки ссылаются на `table_id + row_index + column_index`. Это уменьшает дублирование и сохраняет lineage.
 
 Описание parser/backend-модели находится в [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). Инструкции приложений — в [`backend/README.md`](backend/README.md), [`frontend/README.md`](frontend/README.md) и [`contracts/README.md`](contracts/README.md).
+
+В Docker native PDF reader готов к работе из коробки: backend image содержит
+`poppler-utils` и проверяется в CI вызовом `pdftotext -v`.

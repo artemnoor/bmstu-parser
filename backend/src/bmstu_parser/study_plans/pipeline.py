@@ -118,10 +118,15 @@ class StudyPlanExtractionPipeline:
         return references
 
     def _checkpoint_result_path(self, reference: StudyPlanReference) -> Path:
-        safe_id = "".join(character if character.isalnum() or character in "-_" else "_" for character in reference.document_id)
+        safe_id = "".join(
+            character if character.isalnum() or character in "-_" else "_"
+            for character in reference.document_id
+        )
         return self.result_dir / "study_plan_data" / "checkpoints" / f"{safe_id}.json"
 
-    def _extract_one(self, reference: StudyPlanReference, checkpoints: CheckpointStore) -> dict[str, Any]:
+    def _extract_one(
+        self, reference: StudyPlanReference, checkpoints: CheckpointStore
+    ) -> dict[str, Any]:
         source_path = self.result_dir / Path(reference.local_path.replace("\\", "/"))
         fingerprint = file_fingerprint(
             source_path,
@@ -136,12 +141,18 @@ class StudyPlanExtractionPipeline:
             if hit is not None:
                 try:
                     cached = json.loads(hit.result_path.read_text(encoding="utf-8"))
-                    if isinstance(cached, dict) and isinstance(cached.get("document"), dict):
+                    if isinstance(cached, dict) and isinstance(
+                        cached.get("document"), dict
+                    ):
                         return cached
                 except (OSError, json.JSONDecodeError):
-                    LOGGER.warning("Повреждён checkpoint учебного плана: %s", hit.result_path)
+                    LOGGER.warning(
+                        "Повреждён checkpoint учебного плана: %s", hit.result_path
+                    )
 
-        result = extract_document(reference, self.result_dir, reader_backend=self.reader_backend)
+        result = extract_document(
+            reference, self.result_dir, reader_backend=self.reader_backend
+        )
         result_path = self._checkpoint_result_path(reference)
         atomic_write_json(result_path, result)
         checkpoints.mark(
@@ -159,7 +170,9 @@ class StudyPlanExtractionPipeline:
             root = self.result_dir
             checkpoints = CheckpointStore(root / "study_plan_data" / "checkpoints")
             results: list[dict[str, Any] | None] = [None] * len(references)
-            with ThreadPoolExecutor(max_workers=self.workers, thread_name_prefix="bmstu-plan") as pool:
+            with ThreadPoolExecutor(
+                max_workers=self.workers, thread_name_prefix="bmstu-plan"
+            ) as pool:
                 futures = {
                     pool.submit(self._extract_one, reference, checkpoints): index
                     for index, reference in enumerate(references)
@@ -170,11 +183,17 @@ class StudyPlanExtractionPipeline:
                     # A physical document may be referenced by more than one program.
                     result["document"]["source_references"] = [
                         _reference_dict(reference)
-                        for reference in self.reference_groups[references[index].document_id]
+                        for reference in self.reference_groups[
+                            references[index].document_id
+                        ]
                     ]
                     results[index] = result
                     if completed % 10 == 0 or completed == len(references):
-                        LOGGER.info("Учебные планы: обработано %s/%s", completed, len(references))
+                        LOGGER.info(
+                            "Учебные планы: обработано %s/%s",
+                            completed,
+                            len(references),
+                        )
             materialized = [result for result in results if result is not None]
             all_rows = [
                 row
@@ -198,7 +217,9 @@ class StudyPlanExtractionPipeline:
                 invalid_references=self.invalid_references,
             )
             ontology = StudyPlanOntologyBuilder().build(materialized)
-            write_extraction_dataset(root / "study_plan_data", materialized, quality, ontology)
+            write_extraction_dataset(
+                root / "study_plan_data", materialized, quality, ontology
+            )
             run.stage(
                 "extract_documents",
                 inputs=["study_plan_files.csv", "study_plans"],

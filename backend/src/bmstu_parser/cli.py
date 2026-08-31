@@ -17,20 +17,38 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Парсер программ обучения и учебных планов МГТУ им. Н. Э. Баумана."
     )
-    parser.add_argument("--output", type=Path, default=Path("data/result"), help="Каталог результата")
-    parser.add_argument("--workers", type=int, default=6, help="Число параллельных запросов карточек")
-    parser.add_argument("--page-size", type=int, default=100, help="Размер страницы API")
-    parser.add_argument("--timeout", type=float, default=30.0, help="Тайм-аут HTTP-запроса")
-    parser.add_argument("--delay", type=float, default=0.15, help="Минимальная пауза между запросами")
+    parser.add_argument(
+        "--output", type=Path, default=Path("data/result"), help="Каталог результата"
+    )
+    parser.add_argument(
+        "--workers", type=int, default=6, help="Число параллельных запросов карточек"
+    )
+    parser.add_argument(
+        "--page-size", type=int, default=100, help="Размер страницы API"
+    )
+    parser.add_argument(
+        "--timeout", type=float, default=30.0, help="Тайм-аут HTTP-запроса"
+    )
+    parser.add_argument(
+        "--delay", type=float, default=0.15, help="Минимальная пауза между запросами"
+    )
     parser.add_argument(
         "--resolve-plans",
         action=argparse.BooleanOptionalAction,
         default=True,
         help="Разрешать ссылки учебных планов",
     )
-    parser.add_argument("--download-plans", action="store_true", help="Скачивать найденные файлы планов")
-    parser.add_argument("--strict", action="store_true", help="Завершать процесс с кодом 1 при провале quality gate")
-    parser.add_argument("--verbose", action="store_true", help="Включить подробное логирование")
+    parser.add_argument(
+        "--download-plans", action="store_true", help="Скачивать найденные файлы планов"
+    )
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Завершать процесс с кодом 1 при провале quality gate",
+    )
+    parser.add_argument(
+        "--verbose", action="store_true", help="Включить подробное логирование"
+    )
     return parser
 
 
@@ -39,8 +57,15 @@ def build_study_plan_parser() -> argparse.ArgumentParser:
         prog="bmstu-parser extract-study-plans",
         description="Извлечь все таблицы из локальных учебных планов BMSTU.",
     )
-    parser.add_argument("--result", type=Path, default=Path("data/result"), help="Каталог результата основного парсера")
-    parser.add_argument("--workers", type=int, default=4, help="Число параллельных документов")
+    parser.add_argument(
+        "--result",
+        type=Path,
+        default=Path("data/result"),
+        help="Каталог результата основного парсера",
+    )
+    parser.add_argument(
+        "--workers", type=int, default=4, help="Число параллельных документов"
+    )
     parser.add_argument(
         "--reader-backend",
         choices=("native", "docling"),
@@ -53,14 +78,23 @@ def build_study_plan_parser() -> argparse.ArgumentParser:
         default=True,
         help="Возобновлять обработку по checkpoints",
     )
-    parser.add_argument("--strict", action="store_true", help="Завершать процесс с кодом 1 при провале quality gate")
-    parser.add_argument("--verbose", action="store_true", help="Включить прогресс обработки")
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Завершать процесс с кодом 1 при провале quality gate",
+    )
+    parser.add_argument(
+        "--verbose", action="store_true", help="Включить прогресс обработки"
+    )
     return parser
 
 
 def run_study_plan_extraction(argv: list[str]) -> int:
     args = build_study_plan_parser().parse_args(argv)
-    logging.basicConfig(level=logging.INFO if args.verbose else logging.WARNING, format="%(levelname)s %(message)s")
+    logging.basicConfig(
+        level=logging.INFO if args.verbose else logging.WARNING,
+        format="%(levelname)s %(message)s",
+    )
     quality = StudyPlanExtractionPipeline(
         args.result,
         workers=args.workers,
@@ -83,7 +117,11 @@ def run_study_plan_compaction(argv: list[str]) -> int:
 def run_study_plan_semantics(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="bmstu-parser extract-study-plan-semantics")
     parser.add_argument("--result", type=Path, default=Path("data/result"))
-    parser.add_argument("--strict", action="store_true", help="Завершать процесс с кодом 1 при провале semantic quality gate")
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Завершать процесс с кодом 1 при провале semantic quality gate",
+    )
     args = parser.parse_args(argv)
     report = enrich_existing_dataset(args.result)
     print(json.dumps(report, ensure_ascii=False, indent=2))
@@ -107,7 +145,10 @@ def main(argv: list[str] | None = None) -> int:
     if raw_args and raw_args[0] == "api":
         return run_api(raw_args[1:])
     args = build_parser().parse_args(raw_args)
-    logging.basicConfig(level=logging.INFO if args.verbose else logging.WARNING, format="%(levelname)s %(message)s")
+    logging.basicConfig(
+        level=logging.INFO if args.verbose else logging.WARNING,
+        format="%(levelname)s %(message)s",
+    )
     settings = Settings(
         output_dir=args.output,
         workers=args.workers,

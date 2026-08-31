@@ -13,6 +13,7 @@ from fastapi.responses import FileResponse
 from .. import __version__
 from .config import ApiSettings
 from .jobs import JobManager, OperationConflictError
+from .job_store import SqliteJobStore
 from .models import (
     DatasetCatalogResponse,
     DatasetPage,
@@ -30,14 +31,24 @@ SERVICE_NAME = "bmstu-education-api"
 def create_app(
     settings: ApiSettings | None = None,
     *,
-    operation_executor: Callable[[OperationRequest, Any], dict[str, Any]] = execute_operation,
+    operation_executor: Callable[
+        [OperationRequest, Any], dict[str, Any]
+    ] = execute_operation,
     job_manager: JobManager | None = None,
 ) -> FastAPI:
     api_settings = settings or ApiSettings.from_env()
     if api_settings.is_production and not api_settings.api_key:
         raise RuntimeError("BMSTU_API_KEY обязателен при BMSTU_ENV=production")
-    repository = DatasetRepository(api_settings.result_dir)
-    jobs = job_manager or JobManager()
+    repository = DatasetRepository(
+        api_settings.result_dir, engine=api_settings.dataset_engine
+    )
+    jobs = job_manager or JobManager(
+        store=SqliteJobStore(
+            api_settings.result_dir / "pipeline_runs" / "operations.sqlite3",
+            max_records=api_settings.operation_max_records,
+            ttl_seconds=api_settings.operation_ttl_seconds,
+        )
+    )
     owns_jobs = job_manager is None
 
     @asynccontextmanager
@@ -85,8 +96,13 @@ def create_app(
     def require_write_access(
         x_api_key: str | None = Header(default=None, alias="X-API-Key"),
     ) -> None:
-        if api_settings.api_key and not hmac.compare_digest(x_api_key or "", api_settings.api_key):
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Неверный или отсутствующий X-API-Key")
+        if api_settings.api_key and not hmac.compare_digest(
+            x_api_key or "", api_settings.api_key
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Неверный или отсутствующий X-API-Key",
+            )
 
     def page_dataset(
         dataset_name: str,
@@ -100,6 +116,7 @@ def create_app(
         discipline_id: str | None,
         major_id: str | None,
         program_id: str | None,
+        department_id: str | None,
         slug: str | None,
         code: str | None = None,
     ) -> dict[str, Any]:
@@ -112,17 +129,38 @@ def create_app(
                 "discipline_id": discipline_id,
                 "major_id": major_id,
                 "program_id": program_id,
+                "department_id": department_id,
                 "slug": slug,
                 "code": code,
             }.items()
             if value
         }
         try:
-            return repository.page(dataset_name, offset=offset, limit=limit, filters=filters, query=query)
+            return repository.page(
+                dataset_name, offset=offset, limit=limit, filters=filters, query=query
+            )
         except DatasetNotFoundError as exc:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+            ) from exc
         except DatasetUnavailableError as exc:
-            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+            ) from exc
+
+    def first_dataset(
+        dataset_name: str, field: str, value: str
+    ) -> dict[str, Any] | None:
+        try:
+            return repository.first(dataset_name, field, value)
+        except DatasetNotFoundError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+            ) from exc
+        except DatasetUnavailableError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+            ) from exc
 
     @app.get("/", tags=["system"], include_in_schema=False)
     def root() -> dict[str, str]:
@@ -144,6 +182,7 @@ def create_app(
             result_dir=str(api_settings.result_dir),
             dataset_ready=data_ready,
             quality_passed=quality_passed,
+            data_engine=repository.engine,
         )
 
     @app.get("/api/v1/catalog", tags=["catalog"])
@@ -162,10 +201,15 @@ def create_app(
     def run(run_id: str) -> dict[str, Any]:
         item = repository.run(run_id)
         if item is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Запуск не найден: {run_id}")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Запуск не найден: {run_id}",
+            )
         return item
 
-    @app.get("/api/v1/datasets", response_model=DatasetCatalogResponse, tags=["datasets"])
+    @app.get(
+        "/api/v1/datasets", response_model=DatasetCatalogResponse, tags=["datasets"]
+    )
     def datasets() -> DatasetCatalogResponse:
         return DatasetCatalogResponse(datasets=repository.descriptors())
 
@@ -174,7 +218,9 @@ def create_app(
         try:
             spec = repository.spec(dataset_name)
         except DatasetNotFoundError as exc:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+            ) from exc
         path = repository.path_for(dataset_name)
         return {
             "name": spec.name,
@@ -185,18 +231,25 @@ def create_app(
             "size_bytes": path.stat().st_size if path.exists() else None,
         }
 
-    @app.get("/api/v1/datasets/{dataset_name}/rows", response_model=DatasetPage, tags=["datasets"])
+    @app.get(
+        "/api/v1/datasets/{dataset_name}/rows",
+        response_model=DatasetPage,
+        tags=["datasets"],
+    )
     def dataset_rows(
         dataset_name: str,
         offset: int = Query(default=0, ge=0),
         limit: int = Query(default=50, ge=1, le=500),
-        q: str | None = Query(default=None, description="Полнотекстовый поиск по сериализованной записи"),
+        q: str | None = Query(
+            default=None, description="Полнотекстовый поиск по сериализованной записи"
+        ),
         id: str | None = Query(default=None, description="Точное значение поля id"),
         document_id: str | None = None,
         table_id: str | None = None,
         discipline_id: str | None = None,
         major_id: str | None = None,
         program_id: str | None = None,
+        department_id: str | None = None,
         slug: str | None = None,
     ) -> DatasetPage:
         return DatasetPage(
@@ -211,6 +264,7 @@ def create_app(
                 discipline_id=discipline_id,
                 major_id=major_id,
                 program_id=program_id,
+                department_id=department_id,
                 slug=slug,
             )
         )
@@ -234,6 +288,7 @@ def create_app(
             discipline_id=None,
             major_id=None,
             program_id=None,
+            department_id=None,
             slug=slug,
             code=code,
         )
@@ -241,9 +296,12 @@ def create_app(
 
     @app.get("/api/v1/majors/{slug}", tags=["domain"])
     def major(slug: str) -> dict[str, Any]:
-        item = repository.first("majors", "slug", slug)
+        item = first_dataset("majors", "slug", slug)
         if item is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Направление не найдено: {slug}")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Направление не найдено: {slug}",
+            )
         return item
 
     @app.get("/api/v1/programs", response_model=DatasetPage, tags=["domain"])
@@ -254,58 +312,142 @@ def create_app(
         major_id: str | None = None,
         department_id: str | None = None,
     ) -> DatasetPage:
-        filters = {key: value for key, value in {"major_id": major_id, "department_id": department_id}.items() if value}
-        return DatasetPage(**repository.page("educational_programs", offset=offset, limit=limit, filters=filters, query=q))
+        return DatasetPage(
+            **page_dataset(
+                "educational_programs",
+                offset=offset,
+                limit=limit,
+                query=q,
+                row_id=None,
+                document_id=None,
+                table_id=None,
+                discipline_id=None,
+                major_id=major_id,
+                program_id=None,
+                department_id=department_id,
+                slug=None,
+            )
+        )
 
     @app.get("/api/v1/programs/{program_id}", tags=["domain"])
     def program(program_id: str) -> dict[str, Any]:
-        item = repository.first("educational_programs", "id", program_id)
+        item = first_dataset("educational_programs", "id", program_id)
         if item is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Программа не найдена: {program_id}")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Программа не найдена: {program_id}",
+            )
         return item
 
-    @app.get("/api/v1/study-plans/documents", response_model=DatasetPage, tags=["study plans"])
+    @app.get(
+        "/api/v1/study-plans/documents",
+        response_model=DatasetPage,
+        tags=["study plans"],
+    )
     def study_plan_documents(
         offset: int = Query(default=0, ge=0),
         limit: int = Query(default=50, ge=1, le=500),
         q: str | None = None,
         program_id: str | None = None,
     ) -> DatasetPage:
-        filters = {"program_id": program_id} if program_id else {}
-        return DatasetPage(**repository.page("study_plan_documents", offset=offset, limit=limit, filters=filters, query=q))
+        return DatasetPage(
+            **page_dataset(
+                "study_plan_documents",
+                offset=offset,
+                limit=limit,
+                query=q,
+                row_id=None,
+                document_id=None,
+                table_id=None,
+                discipline_id=None,
+                major_id=None,
+                program_id=program_id,
+                department_id=None,
+                slug=None,
+            )
+        )
 
     @app.get("/api/v1/study-plans/documents/{document_id}", tags=["study plans"])
     def study_plan_document(document_id: str) -> dict[str, Any]:
-        item = repository.first("study_plan_documents", "document_id", document_id)
+        item = first_dataset("study_plan_documents", "document_id", document_id)
         if item is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Документ не найден: {document_id}")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Документ не найден: {document_id}",
+            )
         return item
 
-    @app.get("/api/v1/study-plans/documents/{document_id}/tables", response_model=DatasetPage, tags=["study plans"])
+    @app.get(
+        "/api/v1/study-plans/documents/{document_id}/tables",
+        response_model=DatasetPage,
+        tags=["study plans"],
+    )
     def study_plan_document_tables(
         document_id: str,
         offset: int = Query(default=0, ge=0),
         limit: int = Query(default=100, ge=1, le=500),
     ) -> DatasetPage:
-        return DatasetPage(**repository.page("study_plan_tables", offset=offset, limit=limit, filters={"document_id": document_id}))
+        return DatasetPage(
+            **page_dataset(
+                "study_plan_tables",
+                offset=offset,
+                limit=limit,
+                query=None,
+                row_id=None,
+                document_id=document_id,
+                table_id=None,
+                discipline_id=None,
+                major_id=None,
+                program_id=None,
+                department_id=None,
+                slug=None,
+            )
+        )
 
-    @app.get("/api/v1/study-plans/documents/{document_id}/disciplines", response_model=DatasetPage, tags=["study plans"])
+    @app.get(
+        "/api/v1/study-plans/documents/{document_id}/disciplines",
+        response_model=DatasetPage,
+        tags=["study plans"],
+    )
     def study_plan_document_disciplines(
         document_id: str,
         offset: int = Query(default=0, ge=0),
         limit: int = Query(default=100, ge=1, le=500),
     ) -> DatasetPage:
-        return DatasetPage(**repository.page("study_plan_disciplines", offset=offset, limit=limit, filters={"document_id": document_id}))
+        return DatasetPage(
+            **page_dataset(
+                "study_plan_disciplines",
+                offset=offset,
+                limit=limit,
+                query=None,
+                row_id=None,
+                document_id=document_id,
+                table_id=None,
+                discipline_id=None,
+                major_id=None,
+                program_id=None,
+                department_id=None,
+                slug=None,
+            )
+        )
 
     @app.get("/api/v1/study-plans/documents/{document_id}/file", tags=["study plans"])
     def study_plan_document_file(document_id: str) -> FileResponse:
         file_info = repository.document_file(document_id)
         if file_info is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Файл учебного плана не найден")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Файл учебного плана не найден",
+            )
         path, filename, content_type = file_info
         return FileResponse(path, media_type=content_type, filename=filename)
 
-    @app.post("/api/v1/operations", response_model=OperationStatus, status_code=status.HTTP_202_ACCEPTED, tags=["operations"])
+    @app.post(
+        "/api/v1/operations",
+        response_model=OperationStatus,
+        status_code=status.HTTP_202_ACCEPTED,
+        tags=["operations"],
+    )
     def start_operation(
         request: OperationRequest,
         _access: None = Depends(require_write_access),
@@ -316,14 +458,23 @@ def create_app(
                 lambda: operation_executor(request, api_settings.result_dir),
             )
         except OperationConflictError as exc:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+            ) from exc
         return OperationStatus(**record)
 
-    @app.get("/api/v1/operations/{operation_id}", response_model=OperationStatus, tags=["operations"])
+    @app.get(
+        "/api/v1/operations/{operation_id}",
+        response_model=OperationStatus,
+        tags=["operations"],
+    )
     def operation(operation_id: str) -> OperationStatus:
         record = jobs.get(operation_id)
         if record is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Операция не найдена: {operation_id}")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Операция не найдена: {operation_id}",
+            )
         return OperationStatus(**record)
 
     return app

@@ -31,7 +31,9 @@ class PipelineRun:
     not pretend to be a Foundry runtime.
     """
 
-    def __init__(self, result_dir: Path, pipeline: str, *, parent_run_id: str | None = None) -> None:
+    def __init__(
+        self, result_dir: Path, pipeline: str, *, parent_run_id: str | None = None
+    ) -> None:
         self.result_dir = result_dir
         self.run_id = uuid4().hex
         self._manifest_dir = result_dir / "pipeline_runs"
@@ -119,7 +121,9 @@ class PipelineRun:
     def _persist(self) -> None:
         self._manifest_dir.mkdir(parents=True, exist_ok=True)
         temporary = self._path.with_suffix(f".json.{os.getpid()}.tmp")
-        temporary.write_text(json.dumps(self._record, ensure_ascii=False, indent=2), encoding="utf-8")
+        temporary.write_text(
+            json.dumps(self._record, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
         temporary.replace(self._path)
         latest = self._manifest_dir / "latest.json"
         latest_payload = {
@@ -127,9 +131,11 @@ class PipelineRun:
             "pipeline": self._record["pipeline"],
             "status": self._record["status"],
             "manifest": self._path.name,
-            "updated_at_utc": self._record["finished_at_utc"] or self._record["started_at_utc"],
+            "updated_at_utc": self._record["finished_at_utc"]
+            or self._record["started_at_utc"],
         }
         latest_temporary = latest.with_suffix(f".json.{os.getpid()}.tmp")
-        latest_temporary.write_text(json.dumps(latest_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        latest_temporary.write_text(
+            json.dumps(latest_payload, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
         latest_temporary.replace(latest)
-

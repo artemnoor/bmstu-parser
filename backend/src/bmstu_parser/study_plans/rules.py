@@ -20,14 +20,17 @@ def validate_curriculum_contract(
     warnings: list[dict[str, Any]] = []
 
     discipline_ids = [str(item.get("id", "")) for item in disciplines]
-    duplicate_discipline_ids = [key for key, count in Counter(discipline_ids).items() if key and count > 1]
+    duplicate_discipline_ids = [
+        key for key, count in Counter(discipline_ids).items() if key and count > 1
+    ]
     for identifier in duplicate_discipline_ids:
         violations.append({"rule": "unique_discipline_ids", "id": identifier})
 
     missing_subject_fields = [
         str(item.get("id", ""))
         for item in disciplines
-        if not str(item.get("code", "")).strip() or not str(item.get("name", "")).strip()
+        if not str(item.get("code", "")).strip()
+        or not str(item.get("name", "")).strip()
     ]
     for identifier in missing_subject_fields:
         violations.append({"rule": "discipline_code_and_name", "id": identifier})
@@ -42,14 +45,14 @@ def validate_curriculum_contract(
         violations.append({"rule": "load_references_discipline", "id": identifier})
 
     load_ids = [str(item.get("id", "")) for item in semester_loads]
-    duplicate_load_ids = [key for key, count in Counter(load_ids).items() if key and count > 1]
+    duplicate_load_ids = [
+        key for key, count in Counter(load_ids).items() if key and count > 1
+    ]
     for identifier in duplicate_load_ids:
         violations.append({"rule": "unique_semester_load_ids", "id": identifier})
 
     rows_without_sources = [
-        str(item.get("id", ""))
-        for item in rows
-        if not item.get("source_cell_ids")
+        str(item.get("id", "")) for item in rows if not item.get("source_cell_ids")
     ]
     for identifier in rows_without_sources:
         violations.append({"rule": "semantic_row_has_source_cells", "id": identifier})
@@ -81,4 +84,3 @@ def validate_curriculum_contract(
             "warnings": len(warnings),
         },
     }
-

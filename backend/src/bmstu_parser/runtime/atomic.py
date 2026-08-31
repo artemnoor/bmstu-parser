@@ -6,6 +6,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator, TextIO
 
+from ..domain.types import json_default
+
 
 @contextmanager
 def atomic_text_writer(
@@ -34,7 +36,7 @@ def atomic_text_writer(
             suffix=".tmp",
         ) as stream:
             temporary_path = Path(stream.name)
-            yield stream
+            yield stream  # type: ignore[misc]
         temporary_path.replace(path)
     finally:
         if temporary_path is not None:
@@ -49,7 +51,7 @@ def atomic_write_text(path: Path, content: str, *, encoding: str = "utf-8") -> N
 def atomic_write_json(path: Path, value: Any, *, indent: int = 2) -> None:
     atomic_write_text(
         path,
-        json.dumps(value, ensure_ascii=False, indent=indent),
+        json.dumps(value, ensure_ascii=False, indent=indent, default=json_default),
     )
 
 

@@ -382,6 +382,22 @@
             }
           },
           {
+            "name": "department_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Department Id"
+            }
+          },
+          {
             "name": "slug",
             "in": "query",
             "required": false,
@@ -1278,6 +1294,15 @@
               }
             ],
             "title": "Quality Passed"
+          },
+          "data_engine": {
+            "type": "string",
+            "enum": [
+              "duckdb",
+              "file"
+            ],
+            "title": "Data Engine",
+            "default": "duckdb"
           }
         },
         "type": "object",
@@ -1477,6 +1502,13 @@
           "type": {
             "type": "string",
             "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
           }
         },
         "type": "object",

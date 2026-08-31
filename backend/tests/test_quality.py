@@ -18,7 +18,9 @@ class QualityTests(unittest.TestCase):
         self.assertFalse(quality["verification"]["passed"])
         self.assertEqual(quality["detail_errors"][0]["slug"], "broken")
 
-    def test_quality_gate_rejects_duplicate_detail_instead_of_matching_only_length(self) -> None:
+    def test_quality_gate_rejects_duplicate_detail_instead_of_matching_only_length(
+        self,
+    ) -> None:
         summaries = [
             {"slug": "first", "name": "First", "code": "01.00.00"},
             {"slug": "second", "name": "Second", "code": "02.00.00"},
@@ -28,7 +30,9 @@ class QualityTests(unittest.TestCase):
             DetailFetch(summaries[0], {}, None, "now"),
         ]
         majors = [Normalizer().normalize(item) for item in details]
-        quality = validate_dataset(summaries, {"count": 2}, details, majors, {"objects": {}, "links": []})
+        quality = validate_dataset(
+            summaries, {"count": 2}, details, majors, {"objects": {}, "links": []}
+        )
 
         self.assertFalse(quality["verification"]["detail_for_every_list_item"])
         self.assertIn("second", quality["missing_detail_items"])
@@ -72,7 +76,9 @@ class QualityTests(unittest.TestCase):
         )
 
         self.assertFalse(quality["verification"]["passed"])
-        self.assertFalse(quality["verification"]["table_counts_match_materialized_data"])
+        self.assertFalse(
+            quality["verification"]["table_counts_match_materialized_data"]
+        )
         self.assertEqual(quality["table_count_mismatches"][0]["declared"], 2)
 
 

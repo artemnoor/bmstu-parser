@@ -21,7 +21,9 @@ def _resolution_key(discipline: dict[str, Any]) -> tuple[str, str]:
     return "source", normalize_key(discipline.get("id", ""))
 
 
-def _code_collision_candidates(disciplines: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _code_collision_candidates(
+    disciplines: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
     by_code: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for discipline in disciplines:
         code = normalize_key(discipline.get("code", ""))
@@ -29,14 +31,22 @@ def _code_collision_candidates(disciplines: list[dict[str, Any]]) -> list[dict[s
             by_code[code].append(discipline)
     collisions = []
     for code, members in sorted(by_code.items()):
-        names = sorted({str(item.get("name", "")).strip() for item in members if str(item.get("name", "")).strip()})
+        names = sorted(
+            {
+                str(item.get("name", "")).strip()
+                for item in members
+                if str(item.get("name", "")).strip()
+            }
+        )
         if len(names) > 1:
             collisions.append(
                 {
                     "code": code,
                     "candidate_names": names[:20],
                     "candidate_name_count": len(names),
-                    "source_discipline_ids": [str(item.get("id", "")) for item in members[:20]],
+                    "source_discipline_ids": [
+                        str(item.get("id", "")) for item in members[:20]
+                    ],
                 }
             )
     return collisions
@@ -60,8 +70,20 @@ def resolve_disciplines(disciplines: list[dict[str, Any]]) -> dict[str, Any]:
     conflicts: list[dict[str, Any]] = []
     for key in sorted(groups):
         members = sorted(groups[key], key=lambda item: str(item.get("id", "")))
-        names = sorted({str(item.get("name", "")).strip() for item in members if str(item.get("name", "")).strip()})
-        codes = sorted({str(item.get("code", "")).strip() for item in members if str(item.get("code", "")).strip()})
+        names = sorted(
+            {
+                str(item.get("name", "")).strip()
+                for item in members
+                if str(item.get("name", "")).strip()
+            }
+        )
+        codes = sorted(
+            {
+                str(item.get("code", "")).strip()
+                for item in members
+                if str(item.get("code", "")).strip()
+            }
+        )
         entity_id = stable_id("study-plan-discipline-entity", key[0], key[1])
         entity_conflicts: list[dict[str, Any]] = []
         if len(names) > 1:
@@ -78,7 +100,9 @@ def resolve_disciplines(disciplines: list[dict[str, Any]]) -> dict[str, Any]:
                 "name": names[0] if names else "",
                 "aliases": names,
                 "source_discipline_ids": [str(item.get("id", "")) for item in members],
-                "source_documents": sorted({str(item.get("document_id", "")) for item in members}),
+                "source_documents": sorted(
+                    {str(item.get("document_id", "")) for item in members}
+                ),
                 "conflicts": entity_conflicts,
             }
         )
@@ -105,7 +129,9 @@ def resolve_disciplines(disciplines: list[dict[str, Any]]) -> dict[str, Any]:
             "source_disciplines": len(disciplines),
             "entities": len(entities),
             "aliases": len(aliases),
-            "ambiguous_entities": sum(1 for entity in entities if entity["status"] == "ambiguous"),
+            "ambiguous_entities": sum(
+                1 for entity in entities if entity["status"] == "ambiguous"
+            ),
             "code_collision_candidates": len(code_collision_candidates),
         },
         "entities": entities,

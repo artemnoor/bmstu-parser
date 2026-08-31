@@ -9,6 +9,7 @@ from .models import (
     PlanFile,
     PracticePartner,
     SourceProvenance,
+    SourceObservation,
     StudyPlan,
     TuitionOption,
 )
@@ -24,7 +25,7 @@ __all__ = [
     "PlanFile",
     "PracticePartner",
     "SourceProvenance",
+    "SourceObservation",
     "StudyPlan",
     "TuitionOption",
 ]
-

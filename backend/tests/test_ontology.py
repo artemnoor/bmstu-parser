@@ -21,7 +21,9 @@ def sample_major():
                     "slug": "chair",
                     "title": "Кафедра",
                     "faculty": {"slug": "faculty", "title": "Факультет"},
-                    "educationalProgram": {"items": [{"name": "Программа", "code": "P"}]},
+                    "educationalProgram": {
+                        "items": [{"name": "Программа", "code": "P"}]
+                    },
                 }
             ]
         },
@@ -36,13 +38,15 @@ class OntologyTests(unittest.TestCase):
         self.assertEqual(len(ontology["objects"]["major"]), 1)
         self.assertEqual(len(ontology["objects"]["department"]), 1)
         object_ids = {
-            item["id"]
-            for bucket in ontology["objects"].values()
-            for item in bucket
+            item["id"] for bucket in ontology["objects"].values() for item in bucket
         }
-        self.assertTrue(all(link["from_id"] in object_ids and link["to_id"] in object_ids for link in ontology["links"]))
+        self.assertTrue(
+            all(
+                link["from_id"] in object_ids and link["to_id"] in object_ids
+                for link in ontology["links"]
+            )
+        )
 
 
 if __name__ == "__main__":
     unittest.main()
-

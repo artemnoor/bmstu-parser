@@ -1,7 +1,21 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
+from decimal import Decimal
 from typing import Any
+
+from .provenance import SOURCE_FIELDS
+
+
+@dataclass(frozen=True, slots=True)
+class SourceObservation:
+    source_page: str = ""
+    list_api: str = ""
+    detail_api: str = ""
+    detail_page: str = ""
+    fetched_at_utc: str = ""
+    raw_snapshot_path: str = ""
+    source_key: str = ""
 
 
 @dataclass(slots=True)
@@ -13,6 +27,26 @@ class SourceProvenance:
     fetched_at_utc: str = ""
     raw_snapshot_path: str = ""
     source_key: str = ""
+    sources: list[SourceObservation] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        if not self.sources and any(
+            getattr(self, field_name) for field_name in SOURCE_FIELDS
+        ):
+            self.sources.append(
+                SourceObservation(
+                    source_page=self.source_page,
+                    list_api=self.list_api,
+                    detail_api=self.detail_api,
+                    detail_page=self.detail_page,
+                    fetched_at_utc=self.fetched_at_utc,
+                    raw_snapshot_path=self.raw_snapshot_path,
+                    source_key=self.source_key,
+                )
+            )
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
 
 
 @dataclass(slots=True)
@@ -28,41 +62,55 @@ class Faculty:
 class EntranceRequirement:
     id: str
     subject: str
-    minimum_score: Any
+    minimum_score: int | None
     is_choice: bool | None
     requirement_type: str
     provenance: SourceProvenance
+    legacy_id: str = ""
+    minimum_score_raw: str = ""
+    normalization_warnings: list[str] = field(default_factory=list)
 
 
 @dataclass(slots=True)
 class TuitionOption:
     id: str
     study_form: str
-    value: Any
-    discount_value: Any
+    value: Decimal | None
+    discount_value: Decimal | None
     currency: str
     term: str
     discount_url: str
     subtitle: str
     provenance: SourceProvenance
+    legacy_id: str = ""
+    value_raw: str = ""
+    discount_value_raw: str = ""
+    normalization_warnings: list[str] = field(default_factory=list)
 
 
 @dataclass(slots=True)
 class AdmissionPlace:
     id: str
     place_type: str
-    count: Any
+    count: int | None
     provenance: SourceProvenance
+    legacy_id: str = ""
+    count_raw: str = ""
+    normalization_warnings: list[str] = field(default_factory=list)
 
 
 @dataclass(slots=True)
 class HistoricalPassingScore:
     id: str
-    year: Any
-    score: Any
+    year: int | None
+    score: int | None
     department_id: str
     department_name: str
     provenance: SourceProvenance
+    legacy_id: str = ""
+    year_raw: str = ""
+    score_raw: str = ""
+    normalization_warnings: list[str] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -70,7 +118,7 @@ class PlanFile:
     id: str
     name: str
     path: str
-    size: Any
+    size: int | None
     mime_type: str
     md5: str
     sha256: str
@@ -79,8 +127,10 @@ class PlanFile:
     download_url: str
     local_path: str = ""
     downloaded: bool = False
-    downloaded_size: Any = None
+    downloaded_size: int | None = None
     download_error: str | None = None
+    size_raw: str = ""
+    normalization_warnings: list[str] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -117,6 +167,7 @@ class EducationalProgram:
     study_plan: StudyPlan
     practice_partners: list[PracticePartner]
     provenance: SourceProvenance
+    legacy_id: str = ""
 
 
 @dataclass(slots=True)
@@ -168,4 +219,3 @@ class Major:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
-

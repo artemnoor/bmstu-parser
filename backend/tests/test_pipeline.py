@@ -27,8 +27,10 @@ class _FakeMirrorApi:
 
 def test_scrape_pipeline_records_stage_lineage(tmp_path: Path) -> None:
     summary = {"slug": "example-010101", "name": "Example major", "code": "01.01.01"}
-    pipeline = ScrapePipeline(Settings(output_dir=tmp_path, resolve_plans=False, download_plans=False))
-    pipeline.api = _FakeMirrorApi(summary)  # type: ignore[assignment]
+    pipeline = ScrapePipeline(
+        Settings(output_dir=tmp_path, resolve_plans=False, download_plans=False),
+        api=_FakeMirrorApi(summary),
+    )
 
     quality = pipeline.run()
 

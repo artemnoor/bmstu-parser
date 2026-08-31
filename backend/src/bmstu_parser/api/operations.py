@@ -17,7 +17,9 @@ class OperationQualityError(RuntimeError):
         super().__init__(f"Quality gate не пройден для операции {operation}")
 
 
-def _quality_result(operation: str, report: dict[str, Any], strict: bool) -> dict[str, Any]:
+def _quality_result(
+    operation: str, report: dict[str, Any], strict: bool
+) -> dict[str, Any]:
     result = {"operation": operation, "quality": report}
     if strict and not report.get("verification", {}).get("passed", False):
         raise OperationQualityError(operation, result)

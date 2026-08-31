@@ -48,6 +48,7 @@ def _write_fixture(result_dir: Path) -> None:
                 "kind": "pdf",
                 "status": "ok",
                 "expected_mime_type": "application/pdf",
+                "program_id": "program-1",
             },
             ensure_ascii=False,
         )
@@ -55,7 +56,21 @@ def _write_fixture(result_dir: Path) -> None:
         encoding="utf-8",
     )
     (data_dir / "study_plan_tables.jsonl").write_text(
-        json.dumps({"id": "table-1", "document_id": "document-1", "section": "curriculum"}) + "\n",
+        json.dumps(
+            {"id": "table-1", "document_id": "document-1", "section": "curriculum"}
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (data_dir / "study_plan_disciplines.jsonl").write_text(
+        json.dumps(
+            {
+                "id": "discipline-1",
+                "document_id": "document-1",
+                "name": "Математика",
+            }
+        )
+        + "\n",
         encoding="utf-8",
     )
 
@@ -79,7 +94,9 @@ def test_api_exposes_swagger_catalog_and_safe_file_download(tmp_path: Path) -> N
         openapi = client.get("/openapi.json")
         assert openapi.status_code == 200
         assert "/api/v1/operations" in openapi.json()["paths"]
-        operation_properties = openapi.json()["components"]["schemas"]["OperationRequest"]["properties"]
+        operation_properties = openapi.json()["components"]["schemas"][
+            "OperationRequest"
+        ]["properties"]
         assert operation_properties["reader_backend"]["default"] == "native"
         assert operation_properties["resume"]["default"] is True
         runs = client.get("/api/v1/runs")
@@ -91,12 +108,34 @@ def test_api_exposes_swagger_catalog_and_safe_file_download(tmp_path: Path) -> N
         assert page.json()["total"] == 1
         assert page.json()["items"][0]["slug"] == "example-010101"
 
+        programs = client.get(
+            "/api/v1/programs", params={"department_id": "department-1", "limit": 1}
+        )
+        assert programs.status_code == 200
+        assert programs.json()["total"] == 1
+
+        generic = client.get(
+            "/api/v1/datasets/educational_programs/rows",
+            params={"department_id": "department-1", "limit": 1},
+        )
+        assert generic.status_code == 200
+        assert generic.json()["total"] == 1
+
         document = client.get("/api/v1/study-plans/documents/document-1")
         assert document.status_code == 200
+        tables = client.get("/api/v1/study-plans/documents/document-1/tables")
+        assert tables.status_code == 200
+        assert tables.json()["total"] == 1
+        disciplines = client.get("/api/v1/study-plans/documents/document-1/disciplines")
+        assert disciplines.status_code == 200
+        assert disciplines.json()["total"] == 1
         download = client.get("/api/v1/study-plans/documents/document-1/file")
         assert download.status_code == 200
         assert download.headers["content-type"] == "application/pdf"
         assert download.content.startswith(b"%PDF-")
+
+        unknown_dataset = client.get("/api/v1/datasets/not-a-dataset/rows")
+        assert unknown_dataset.status_code == 404
 
 
 def test_api_requires_key_for_operations_and_tracks_job(tmp_path: Path) -> None:
@@ -111,7 +150,9 @@ def test_api_requires_key_for_operations_and_tracks_job(tmp_path: Path) -> None:
         payload = {"operation": "extract_semantics", "strict": True}
         assert client.post("/api/v1/operations", json=payload).status_code == 401
 
-        started = client.post("/api/v1/operations", json=payload, headers={"X-API-Key": "secret"})
+        started = client.post(
+            "/api/v1/operations", json=payload, headers={"X-API-Key": "secret"}
+        )
         assert started.status_code == 202
         operation_id = started.json()["id"]
 
@@ -124,7 +165,9 @@ def test_api_requires_key_for_operations_and_tracks_job(tmp_path: Path) -> None:
         assert operation["result"]["quality"]["verification"]["passed"] is True
 
 
-def test_local_file_dashboard_origin_is_allowed_by_default(tmp_path: Path, monkeypatch: object) -> None:
+def test_local_file_dashboard_origin_is_allowed_by_default(
+    tmp_path: Path, monkeypatch: object
+) -> None:
     result_dir = tmp_path / "result"
     _write_fixture(result_dir)
     monkeypatch.setenv("BMSTU_ENV", "development")
@@ -141,3 +184,9 @@ def test_local_file_dashboard_origin_is_allowed_by_default(tmp_path: Path, monke
 def test_production_api_requires_write_key_at_startup(tmp_path: Path) -> None:
     with pytest.raises(RuntimeError, match="BMSTU_API_KEY"):
         create_app(ApiSettings(result_dir=tmp_path, environment="production"))
+
+
+def test_api_maps_missing_dataset_to_service_unavailable(tmp_path: Path) -> None:
+    with TestClient(create_app(ApiSettings(result_dir=tmp_path))) as client:
+        response = client.get("/api/v1/majors/missing")
+        assert response.status_code == 503

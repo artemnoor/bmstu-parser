@@ -51,15 +51,41 @@ def test_curriculum_contract_reports_orphan_loads_and_missing_sources() -> None:
     assert report["verification"]["discipline_code_and_name_present"]
     assert not report["verification"]["semester_loads_reference_disciplines"]
     assert not report["verification"]["passed"]
-    assert report["violations"] == [{"rule": "load_references_discipline", "id": "load-1"}]
+    assert report["violations"] == [
+        {"rule": "load_references_discipline", "id": "load-1"}
+    ]
 
 
 def test_resolver_is_non_destructive_and_keeps_ambiguous_collisions_visible() -> None:
     disciplines = [
-        {"id": "d-1", "document_id": "doc-1", "code": "101", "name": "Алгебра", "department": "Кафедра 1"},
-        {"id": "d-2", "document_id": "doc-2", "code": "101", "name": "Алгебра", "department": "Кафедра 2"},
-        {"id": "d-3", "document_id": "doc-3", "code": "202", "name": "Физика", "department": "Кафедра 3"},
-        {"id": "d-4", "document_id": "doc-4", "code": "202", "name": "Механика", "department": "Кафедра 4"},
+        {
+            "id": "d-1",
+            "document_id": "doc-1",
+            "code": "101",
+            "name": "Алгебра",
+            "department": "Кафедра 1",
+        },
+        {
+            "id": "d-2",
+            "document_id": "doc-2",
+            "code": "101",
+            "name": "Алгебра",
+            "department": "Кафедра 2",
+        },
+        {
+            "id": "d-3",
+            "document_id": "doc-3",
+            "code": "202",
+            "name": "Физика",
+            "department": "Кафедра 3",
+        },
+        {
+            "id": "d-4",
+            "document_id": "doc-4",
+            "code": "202",
+            "name": "Механика",
+            "department": "Кафедра 4",
+        },
     ]
     original = json.loads(json.dumps(disciplines, ensure_ascii=False))
 
@@ -79,7 +105,9 @@ def test_resolver_is_non_destructive_and_keeps_ambiguous_collisions_visible() ->
     assert resolution["code_collision_candidates"][0]["code"] == "202"
 
 
-def test_docling_adapter_maps_structured_tables_to_canonical_cells(tmp_path: Path) -> None:
+def test_docling_adapter_maps_structured_tables_to_canonical_cells(
+    tmp_path: Path,
+) -> None:
     class FakeDocument:
         def export_to_dict(self) -> dict[str, object]:
             return {
@@ -87,8 +115,20 @@ def test_docling_adapter_maps_structured_tables_to_canonical_cells(tmp_path: Pat
                 "texts": [{"text": "Учебный план"}],
                 "tables": [
                     {
-                        "prov": [{"page_no": 1, "bbox": {"l": 10, "t": 20, "r": 900, "b": 300}}],
-                        "data": {"grid": [[{"text": "Шифр", "column_header": True}, {"text": "Наименование"}]]},
+                        "prov": [
+                            {
+                                "page_no": 1,
+                                "bbox": {"l": 10, "t": 20, "r": 900, "b": 300},
+                            }
+                        ],
+                        "data": {
+                            "grid": [
+                                [
+                                    {"text": "Шифр", "column_header": True},
+                                    {"text": "Наименование"},
+                                ]
+                            ]
+                        },
                     }
                 ],
             }
@@ -115,13 +155,23 @@ def test_docling_adapter_maps_structured_tables_to_canonical_cells(tmp_path: Pat
     assert any("word-level anchors" in warning for warning in warnings)
 
 
-def test_extraction_pipeline_resumes_from_checkpoint_with_custom_reader(tmp_path: Path) -> None:
+def test_extraction_pipeline_resumes_from_checkpoint_with_custom_reader(
+    tmp_path: Path,
+) -> None:
     (tmp_path / "study_plans").mkdir()
     (tmp_path / "study_plans" / "plan.pdf").write_bytes(b"%PDF-fake")
-    with (tmp_path / "study_plan_files.csv").open("w", encoding="utf-8-sig", newline="") as stream:
+    with (tmp_path / "study_plan_files.csv").open(
+        "w", encoding="utf-8-sig", newline=""
+    ) as stream:
         writer = csv.DictWriter(stream, fieldnames=["id", "local_path", "program_id"])
         writer.writeheader()
-        writer.writerow({"id": "doc-1", "local_path": "study_plans/plan.pdf", "program_id": "program-1"})
+        writer.writerow(
+            {
+                "id": "doc-1",
+                "local_path": "study_plans/plan.pdf",
+                "program_id": "program-1",
+            }
+        )
 
     class FakeReader:
         name = "test-reader"
@@ -129,7 +179,9 @@ def test_extraction_pipeline_resumes_from_checkpoint_with_custom_reader(tmp_path
         def __init__(self) -> None:
             self.calls = 0
 
-        def extract(self, path: Path, document_id: str) -> tuple[list[dict], list[dict], str, list[str]]:
+        def extract(
+            self, path: Path, document_id: str
+        ) -> tuple[list[dict], list[dict], str, list[str]]:
             self.calls += 1
             table_id = f"table-{document_id}"
             cell = {
@@ -171,5 +223,14 @@ def test_extraction_pipeline_resumes_from_checkpoint_with_custom_reader(tmp_path
     assert first_quality["verification"]["passed"]
     assert second_quality["verification"]["passed"]
     assert reader.calls == 1
-    assert (tmp_path / "study_plan_data" / "checkpoints" / "study_plan_checkpoints.json").exists()
-    assert json.loads((tmp_path / "study_plan_data" / "study_plan_documents.jsonl").read_text(encoding="utf-8").splitlines()[0])["extraction_backend"] == "test-reader"
+    assert (
+        tmp_path / "study_plan_data" / "checkpoints" / "study_plan_checkpoints.json"
+    ).exists()
+    assert (
+        json.loads(
+            (tmp_path / "study_plan_data" / "study_plan_documents.jsonl")
+            .read_text(encoding="utf-8")
+            .splitlines()[0]
+        )["extraction_backend"]
+        == "test-reader"
+    )

@@ -24,19 +24,32 @@ def validate_dataset(
     summary_slugs = Counter(slugs)
     detail_slugs = Counter(str(item.summary.get("slug", "")) for item in details)
     missing_detail_items = sorted(
-        slug for slug, count in summary_slugs.items() if slug and detail_slugs[slug] != count
+        slug
+        for slug, count in summary_slugs.items()
+        if slug and detail_slugs[slug] != count
     )
     unexpected_detail_items = sorted(
-        slug for slug, count in detail_slugs.items() if slug and summary_slugs[slug] != count
+        slug
+        for slug, count in detail_slugs.items()
+        if slug and summary_slugs[slug] != count
     )
-    duplicate_detail_items = sorted(slug for slug, count in detail_slugs.items() if slug and count > 1)
+    duplicate_detail_items = sorted(
+        slug for slug, count in detail_slugs.items() if slug and count > 1
+    )
     detail_errors = [
         {"slug": item.summary.get("slug", ""), "error": item.error}
         for item in details
         if item.error
     ]
     missing_major_fields = [
-        {"slug": major.slug, "missing": [field for field, value in (("name", major.name), ("code", major.code)) if not value]}
+        {
+            "slug": major.slug,
+            "missing": [
+                field
+                for field, value in (("name", major.name), ("code", major.code))
+                if not value
+            ],
+        }
         for major in majors
         if not major.name or not major.code
     ]
@@ -52,15 +65,31 @@ def validate_dataset(
             program_count += 1
             missing = [
                 field
-                for field, value in (("name", program.name), ("code", program.code), ("department_id", program.department_id))
+                for field, value in (
+                    ("name", program.name),
+                    ("code", program.code),
+                    ("department_id", program.department_id),
+                )
                 if not value
             ]
             if missing:
-                missing_program_fields.append({"major_slug": major.slug, "program_id": program.id, "missing": missing})
-            if program.department_id not in {department.id for department in major.departments}:
-                orphan_programs.append({"major_slug": major.slug, "program_id": program.id})
+                missing_program_fields.append(
+                    {
+                        "major_slug": major.slug,
+                        "program_id": program.id,
+                        "missing": missing,
+                    }
+                )
+            if program.department_id not in {
+                department.id for department in major.departments
+            }:
+                orphan_programs.append(
+                    {"major_slug": major.slug, "program_id": program.id}
+                )
             plan_statuses[program.study_plan.status] += 1
-            if program.study_plan.status == "error" or any(file_info.download_error for file_info in program.study_plan.files):
+            if program.study_plan.status == "error" or any(
+                file_info.download_error for file_info in program.study_plan.files
+            ):
                 plan_errors.append(
                     {
                         "major_slug": major.slug,
@@ -89,7 +118,8 @@ def validate_dataset(
 
     expected_count = _meta_count(list_meta)
     checks = {
-        "list_count_matches_api_meta": expected_count is None or expected_count == len(summaries),
+        "list_count_matches_api_meta": expected_count is None
+        or expected_count == len(summaries),
         "no_duplicate_slugs": not duplicates,
         "detail_for_every_list_item": (
             len(details) == len(summaries)
@@ -99,7 +129,8 @@ def validate_dataset(
         ),
         "all_detail_requests_succeeded": not detail_errors,
         "all_details_have_name_and_code": not missing_major_fields,
-        "all_programs_have_department_context": not missing_program_fields and not orphan_programs,
+        "all_programs_have_department_context": not missing_program_fields
+        and not orphan_programs,
         "ontology_has_no_orphan_links": not orphan_links,
         "no_plan_errors": not plan_errors,
     }
@@ -114,7 +145,9 @@ def validate_dataset(
             "majors": len(majors),
             "departments": department_count,
             "educational_programs": program_count,
-            "ontology_objects": sum(len(bucket) for bucket in ontology.get("objects", {}).values()),
+            "ontology_objects": sum(
+                len(bucket) for bucket in ontology.get("objects", {}).values()
+            ),
             "ontology_links": len(ontology.get("links", [])),
         },
         "plan_statuses": dict(sorted(plan_statuses.items())),

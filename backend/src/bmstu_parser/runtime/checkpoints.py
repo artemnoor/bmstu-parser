@@ -41,7 +41,9 @@ class CheckpointStore:
     canonical data itself.
     """
 
-    def __init__(self, directory: Path, filename: str = "study_plan_checkpoints.json") -> None:
+    def __init__(
+        self, directory: Path, filename: str = "study_plan_checkpoints.json"
+    ) -> None:
         self.directory = directory
         self.path = directory / filename
         self._lock = threading.RLock()
@@ -57,7 +59,11 @@ class CheckpointStore:
             return
         records = payload.get("records") if isinstance(payload, dict) else None
         if isinstance(records, dict):
-            self._records = {str(key): value for key, value in records.items() if isinstance(value, dict)}
+            self._records = {
+                str(key): value
+                for key, value in records.items()
+                if isinstance(value, dict)
+            }
 
     def _persist(self) -> None:
         atomic_write_json(
@@ -74,7 +80,11 @@ class CheckpointStore:
             if not record or record.get("fingerprint") != fingerprint:
                 return None
             stored_path = Path(str(record.get("result_path", "")))
-            result_path = stored_path if stored_path.is_absolute() else self.directory / stored_path
+            result_path = (
+                stored_path
+                if stored_path.is_absolute()
+                else self.directory / stored_path
+            )
             if not result_path.is_file():
                 return None
             return CheckpointHit(
@@ -96,7 +106,9 @@ class CheckpointStore:
             resolved_result_path = result_path.resolve()
             resolved_directory = self.directory.resolve()
             try:
-                stored_result_path = resolved_result_path.relative_to(resolved_directory).as_posix()
+                stored_result_path = resolved_result_path.relative_to(
+                    resolved_directory
+                ).as_posix()
             except ValueError:
                 # Keep the API useful for callers that materialize results
                 # outside the ledger directory (the extraction pipeline keeps

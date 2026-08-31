@@ -19,6 +19,9 @@ class ApiSettings:
     api_key: str = ""
     cors_origins: tuple[str, ...] = ()
     environment: str = "development"
+    dataset_engine: str = "duckdb"
+    operation_max_records: int = 1000
+    operation_ttl_seconds: int = 30 * 24 * 60 * 60
 
     @property
     def is_production(self) -> bool:
@@ -28,7 +31,10 @@ class ApiSettings:
     def from_env(cls) -> "ApiSettings":
         configured_origins = os.getenv("BMSTU_CORS_ORIGINS")
         environment = os.getenv("BMSTU_ENV", "development")
-        if (not configured_origins or not configured_origins.strip()) and environment.casefold() not in {
+        origins: tuple[str, ...]
+        if (
+            not configured_origins or not configured_origins.strip()
+        ) and environment.casefold() not in {
             "production",
             "prod",
         }:
@@ -43,7 +49,7 @@ class ApiSettings:
         else:
             origins = tuple(
                 origin.strip()
-                for origin in configured_origins.split(",")
+                for origin in (configured_origins or "").split(",")
                 if origin.strip()
             )
         return cls(
@@ -53,4 +59,12 @@ class ApiSettings:
             api_key=os.getenv("BMSTU_API_KEY", ""),
             cors_origins=origins,
             environment=environment,
+            dataset_engine=(os.getenv("BMSTU_DATA_ENGINE") or "duckdb").casefold(),
+            operation_max_records=max(
+                1, int(os.getenv("BMSTU_OPERATION_MAX_RECORDS", "1000"))
+            ),
+            operation_ttl_seconds=max(
+                1,
+                int(os.getenv("BMSTU_OPERATION_TTL_SECONDS", str(30 * 24 * 60 * 60))),
+            ),
         )

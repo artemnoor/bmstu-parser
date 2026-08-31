@@ -7,6 +7,8 @@ __pycache__/
 .venv/
 venv/
 *.egg-info/
+.coverage
+coverage.xml
 
 # Local environment files
 .env
@@ -16,6 +18,7 @@ venv/
 # Generated parser outputs and downloaded source documents
 data/result/**
 !data/result/.gitkeep
+**/data/result/**
 
 # Local analysis and browser artifacts
 graphify-out/
@@ -27,3 +30,6 @@ node_modules/
 # Logs and temporary files
 *.log
 *.tmp
+
+# Persistent local operation state
+**/pipeline_runs/*.sqlite3

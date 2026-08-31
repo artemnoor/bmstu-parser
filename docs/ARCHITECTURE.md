@@ -101,6 +101,25 @@ BMSTU/
 └── docs/
 ```
 
+Семантический слой учебных планов намеренно разделён на небольшие модули:
+`semantic_geometry` отвечает за координаты и полосы PDF,
+`semantic_schema` — за обнаружение схемы таблицы,
+`semantic_curriculum` — за классификацию строк, числа и контроль,
+`semantic_reconciliation` — за сверку итогов,
+`semantic_quality` — за quality gate,
+`semantic_io` — за проекции, а `semantic_ontology` — за Ontology projection.
+`semantics.py` оставлен фасадом и оркестратором. Такой разрез сохраняет
+общие правила балансировки и позволяет тестировать их через отдельные seams.
+
+В API чтение datasets также вынесено за seam: `DatasetRepository` выбирает
+DuckDB reader по умолчанию или явный построчный `file` fallback. DuckDB
+выполняет count/page/filter/search SQL-запросами непосредственно по CSV/JSONL;
+файлы остаются каноническим источником и не превращаются в вторую базу.
+`JobManager` принимает абстракцию `JobStore`; production default — SQLite с
+восстановлением прерванных операций, а `InMemoryJobStore` используется для
+лёгких тестов. `ScrapePipeline` принимает API, normalizer, resolver factory и
+ontology builder через constructor injection.
+
 ## Отдельный слой учебных планов
 
 Скачанный PDF/DOCX рассматривается как отдельный raw-документ, а не как строка в карточке программы. Команда `extract-study-plans` выполняет следующий поток:
@@ -170,3 +189,8 @@ API / web projections   read-only datasets and controlled operations
 `quality_gate` разделяет блокирующие ошибки и исходные gaps. Например, отсутствие семестровой раскладки у альтернативного электива не подменяется нулём: исходная общая нагрузка сохраняется, gap попадает в отчёт, а строгие проверки останавливают запуск при потере таблиц, строк, ячеек, контролей или ссылок. Дополнительно проверяется соответствие заявленных `document/table` counts фактически materialized rows/cells и точное покрытие detail-запросами всех элементов исходного списка.
 
 История запусков доступна через `GET /api/v1/runs` и `GET /api/v1/runs/{run_id}`. Это локальный control-plane проекта, а не попытка имитировать внутренние сервисы Foundry; для production остаются отдельные задачи: постоянное хранилище build history, расписание, внешние метрики и авторизация пользователей.
+
+Для инженерного quality gate репозитория CI запускает Ruff lint/format,
+проверку типов для изменяемого ядра, pytest с покрытием критических модулей,
+Docker build с проверкой `pdftotext` и Playwright smoke-test независимого
+frontend. Полный список локальных команд находится в README backend.

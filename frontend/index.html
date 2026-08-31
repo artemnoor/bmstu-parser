@@ -26,7 +26,7 @@
         <button type="button" data-view="disciplines" class="nav-item"><span>◌</span>Предметы</button>
         <button type="button" data-view="datasets" class="nav-item"><span>▦</span>Каталог данных</button>
       </nav>
-      <div id="api-status" class="service-status is-muted"><i></i><span>Проверка API…</span></div>
+      <div id="api-status" data-testid="api-status" class="service-status is-muted"><i></i><span>Проверка API…</span></div>
     </aside>
 
     <main class="main-content">
@@ -44,7 +44,7 @@
         </div>
       </header>
       <div id="app-alert" class="alert" role="alert" hidden></div>
-      <section id="app-view" aria-live="polite"></section>
+      <section id="app-view" data-testid="app-view" aria-live="polite"></section>
     </main>
   </div>
 

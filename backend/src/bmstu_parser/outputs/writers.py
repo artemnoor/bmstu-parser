@@ -15,6 +15,7 @@ from .projections import (
     educational_program_rows,
     entrance_subject_rows,
     historical_score_rows,
+    id_aliases,
     major_rows,
     study_plan_file_rows,
     tuition_rows,
@@ -25,12 +26,19 @@ def write_json(path: Path, value: Any) -> None:
     atomic_write_json(path, value)
 
 
-def write_csv(path: Path, rows: Iterable[dict[str, Any]], fieldnames: list[str]) -> None:
+def write_csv(
+    path: Path, rows: Iterable[dict[str, Any]], fieldnames: list[str]
+) -> None:
     with atomic_text_writer(path, encoding="utf-8-sig", newline="") as output:
         writer = csv.DictWriter(output, fieldnames=fieldnames, extrasaction="ignore")
         writer.writeheader()
         for row in rows:
-            writer.writerow({field: "" if row.get(field) is None else row.get(field, "") for field in fieldnames})
+            writer.writerow(
+                {
+                    field: "" if row.get(field) is None else row.get(field, "")
+                    for field in fieldnames
+                }
+            )
 
 
 def write_raw_snapshots(
@@ -95,7 +103,14 @@ def write_dataset(
         output_dir / "ontology.json",
         {"schema_version": "2.0", "source": source, **ontology},
     )
-    write_json(output_dir / "parse_report.json", {"schema_version": "2.0", "source": source, **quality})
+    write_json(
+        output_dir / "parse_report.json",
+        {"schema_version": "2.0", "source": source, **quality},
+    )
+    write_json(
+        output_dir / "id_aliases.json",
+        {"schema_version": "1.0", "aliases": id_aliases(majors)},
+    )
 
     projections: list[tuple[str, list[dict[str, Any]]]] = [
         ("majors.csv", major_rows(majors)),

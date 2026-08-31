@@ -46,7 +46,11 @@ docker compose -f infra\docker-compose.yml up --build
 | `GET` | `/api/v1/study-plans/documents/{id}/disciplines` | Дисциплины документа |
 | `GET` | `/api/v1/study-plans/documents/{id}/file` | Безопасная выдача исходного PDF/DOCX |
 
-Универсальный dataset endpoint поддерживает `offset`, `limit` (до 500), `q`, а также точные фильтры `id`, `document_id`, `table_id`, `discipline_id`, `major_id`, `program_id`, `slug`.
+`GET /health` возвращает также `data_engine`: фактически выбранный reader
+(`duckdb` или `file`). По умолчанию используется DuckDB; режим `file` можно
+включить через `BMSTU_DATA_ENGINE=file`.
+
+Универсальный dataset endpoint поддерживает `offset`, `limit` (до 500), `q`, а также точные фильтры `id`, `document_id`, `table_id`, `discipline_id`, `major_id`, `program_id`, `department_id`, `slug`.
 
 Пример:
 
@@ -54,7 +58,9 @@ docker compose -f infra\docker-compose.yml up --build
 GET /api/v1/datasets/study_plan_semester_load/rows?document_id=bmstu:study-plan-document:...&limit=100
 ```
 
-Слой `study_plan_cells` также доступен через тот же endpoint. Он читается построчно, поэтому сервис не загружает все 1+ млн ячеек в память.
+Слой `study_plan_cells` также доступен через тот же endpoint. DuckDB выполняет
+count/page/filter/search непосредственно по CSV/JSONL, поэтому сервис не
+загружает все 1+ млн ячеек в память.
 
 ## Управление операциями
 
@@ -77,6 +83,20 @@ Invoke-RestMethod "http://127.0.0.1:8000/api/v1/operations/$($job.id)"
 Для `extract_study_plans` можно передать `reader_backend: "native" | "docling"` и `resume: true | false`. `native` используется по умолчанию; `resume` повторно использует только результат с совпадающим fingerprint файла, параметров источника и reader backend.
 
 Для production задайте `BMSTU_ENV=production`, `BMSTU_API_KEY` и явный `BMSTU_CORS_ORIGINS`. Тогда `POST /api/v1/operations` принимает только заголовок `X-API-Key`. Read endpoints остаются доступными отдельно. В development локально разрешены `http://127.0.0.1:5173`, `http://localhost:5173` и origin `null` для открытия `frontend/index.html` напрямую.
+
+Состояние операций хранится в `data/result/pipeline_runs/operations.sqlite3`.
+После перезапуска незавершённые `queued`/`running` операции переводятся в
+`failed`, а старые записи удаляются по ограниченному TTL/размеру. В текущем
+процессе работает один worker и один writer; это гарантирует сериализацию
+операций, но для нескольких экземпляров API потребуется общее хранилище
+очереди. Параметры хранения настраиваются через
+`BMSTU_OPERATION_MAX_RECORDS` и `BMSTU_OPERATION_TTL_SECONDS`.
+
+Изменение идентичности не ломает старые ссылки: pipeline создаёт
+`id_aliases.json` с соответствиями `legacy_id → canonical_id`, а dataset API
+принимает оба варианта для поддерживаемых сущностей. Новый ID строится из
+устойчивого бизнес-ключа, а позиция в массиве используется только как
+детерминированный fallback при настоящей коллизии.
 
 ## Принципы безопасности и целостности
 

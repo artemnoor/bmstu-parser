@@ -10,13 +10,18 @@ from urllib.parse import unquote, urljoin, urlparse
 from ..config import YANDEX_RESOURCE_ENDPOINT
 from ..domain.ids import stable_id
 from ..domain.models import Major, PlanFile, StudyPlan
+from ..domain.types import parse_int
 from ..transform.text import clean_slug, first_text, safe_filename
 from .http import ApiClient, FetchError
 
 
 def is_yandex_public_url(url: str) -> bool:
     host = urlparse(url).netloc.lower().split(":", 1)[0]
-    return host.endswith("yandex.ru") or host.endswith("yandex.com") or host.endswith("yadi.sk")
+    return (
+        host.endswith("yandex.ru")
+        or host.endswith("yandex.com")
+        or host.endswith("yadi.sk")
+    )
 
 
 class StudyPlanResolver:
@@ -25,8 +30,14 @@ class StudyPlanResolver:
         self.output_dir = output_dir
         self.plan_root = output_dir / "study_plans"
 
-    def _resource(self, public_url: str, path: str | None = None, offset: int = 0) -> dict[str, Any]:
-        params: dict[str, Any] = {"public_key": public_url, "limit": 100, "offset": offset}
+    def _resource(
+        self, public_url: str, path: str | None = None, offset: int = 0
+    ) -> dict[str, Any]:
+        params: dict[str, Any] = {
+            "public_key": public_url,
+            "limit": 100,
+            "offset": offset,
+        }
         if path:
             params["path"] = path
         return self.client.get_json(YANDEX_RESOURCE_ENDPOINT, params=params)
@@ -46,8 +57,14 @@ class StudyPlanResolver:
             offset = 0
             while True:
                 page = self._resource(public_url, path=path, offset=offset)
-                embedded = page.get("_embedded") if isinstance(page.get("_embedded"), dict) else {}
-                children = [item for item in embedded.get("items", []) if isinstance(item, dict)]
+                embedded = (
+                    page.get("_embedded")
+                    if isinstance(page.get("_embedded"), dict)
+                    else {}
+                )
+                children = [
+                    item for item in embedded.get("items", []) if isinstance(item, dict)
+                ]
                 for child in children:
                     child_path = str(child.get("path", ""))
                     if child.get("type") == "dir":
@@ -58,27 +75,36 @@ class StudyPlanResolver:
                         except FetchError:
                             files.append(child)
                 total = embedded.get("total")
-                if not children or not isinstance(total, int) or offset + len(children) >= total:
+                if (
+                    not children
+                    or not isinstance(total, int)
+                    or offset + len(children) >= total
+                ):
                     break
                 offset += len(children)
 
         walk(str(first.get("path", "/")))
         return files
 
-    def _file(self, metadata: dict[str, Any], source_url: str, resolved_url: str) -> PlanFile:
+    def _file(
+        self, metadata: dict[str, Any], source_url: str, resolved_url: str
+    ) -> PlanFile:
         path = str(metadata.get("path", ""))
         name = first_text(metadata.get("name"), Path(unquote(path)).name, "study_plan")
+        parsed_size = parse_int(metadata.get("size"), "study_plan_file.size")
         return PlanFile(
             id=stable_id("study-plan-document", source_url, path or name),
             name=name,
             path=path,
-            size=metadata.get("size"),
+            size=parsed_size.value if isinstance(parsed_size.value, int) else None,
             mime_type=first_text(metadata.get("mime_type"), metadata.get("media_type")),
             md5=str(metadata.get("md5", "")),
             sha256=str(metadata.get("sha256", "")),
             source_url=source_url,
             resolved_url=resolved_url,
             download_url=str(metadata.get("file", "")),
+            size_raw=parsed_size.raw,
+            normalization_warnings=[parsed_size.warning] if parsed_size.warning else [],
         )
 
     def resolve(self, plan_url: str, visited: set[str] | None = None) -> StudyPlan:
@@ -116,7 +142,9 @@ class StudyPlanResolver:
                 if match:
                     resolved_url = html.unescape(match.group(1)).replace("\\/", "/")
             if not resolved_url:
-                raise FetchError(f"В короткой ссылке не найдена ссылка на публичный ресурс: {plan_url}")
+                raise FetchError(
+                    f"В короткой ссылке не найдена ссылка на публичный ресурс: {plan_url}"
+                )
             result = self.resolve(resolved_url, visited)
             result.url = plan_url
             result.resolved_url = resolved_url
@@ -155,9 +183,15 @@ class StudyPlanResolver:
             ],
         )
 
-    def _destination(self, major_slug: str, program_id: str, file_info: PlanFile) -> Path:
+    def _destination(
+        self, major_slug: str, program_id: str, file_info: PlanFile
+    ) -> Path:
         raw_path = str(file_info.path or "")
-        path_parts = [safe_filename(part) for part in unquote(raw_path).strip("/").split("/") if part]
+        path_parts = [
+            safe_filename(part)
+            for part in unquote(raw_path).strip("/").split("/")
+            if part
+        ]
         if path_parts:
             filename = path_parts[-1]
             parent_parts = path_parts[:-1]
@@ -180,17 +214,22 @@ class StudyPlanResolver:
             file_info.local_path = str(destination.relative_to(self.output_dir))
             expected_size = file_info.size
             if destination.exists() and (
-                not isinstance(expected_size, int) or destination.stat().st_size == expected_size
+                not isinstance(expected_size, int)
+                or destination.stat().st_size == expected_size
             ):
                 file_info.downloaded = True
                 continue
             try:
-                file_info.downloaded_size = self.client.download(file_info.download_url, destination)
+                file_info.downloaded_size = self.client.download(
+                    file_info.download_url, destination
+                )
                 file_info.downloaded = True
             except FetchError as exc:
                 file_info.download_error = str(exc)
 
-    def enrich(self, majors: list[Major], resolve: bool = True, download: bool = False) -> None:
+    def enrich(
+        self, majors: list[Major], resolve: bool = True, download: bool = False
+    ) -> None:
         if not resolve:
             return
         cache: dict[str, StudyPlan] = {}
@@ -203,7 +242,9 @@ class StudyPlanResolver:
                     continue
                 try:
                     if program.study_plan_url not in cache:
-                        cache[program.study_plan_url] = self.resolve(program.study_plan_url)
+                        cache[program.study_plan_url] = self.resolve(
+                            program.study_plan_url
+                        )
                     program.study_plan = copy.deepcopy(cache[program.study_plan_url])
                     if download:
                         self.download(major.slug, program.id, program.study_plan)

@@ -8,6 +8,8 @@ from html.parser import HTMLParser
 from typing import Any
 from urllib.parse import urljoin
 
+from ..domain.types import json_default
+
 
 class _HTMLTextParser(HTMLParser):
     BLOCK_TAGS = {
@@ -126,4 +128,6 @@ def safe_filename(value: Any, fallback: str = "file") -> str:
 def json_cell(value: Any) -> str:
     if value is None:
         return ""
-    return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+    return json.dumps(
+        value, ensure_ascii=False, separators=(",", ":"), default=json_default
+    )

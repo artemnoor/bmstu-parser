@@ -14,16 +14,26 @@ class LineageTests(unittest.TestCase):
             source.write_text("source", encoding="utf-8")
 
             run = PipelineRun(root, "test_pipeline")
-            run.stage("transform", inputs=["source.txt"], outputs=["source.txt"], metadata={"rows": 1})
+            run.stage(
+                "transform",
+                inputs=["source.txt"],
+                outputs=["source.txt"],
+                metadata={"rows": 1},
+            )
             run.finish(quality={"verification": {"passed": True}})
 
             manifest = json.loads(run.path.read_text(encoding="utf-8"))
-            latest = json.loads((root / "pipeline_runs" / "latest.json").read_text(encoding="utf-8"))
+            latest = json.loads(
+                (root / "pipeline_runs" / "latest.json").read_text(encoding="utf-8")
+            )
 
             self.assertEqual(manifest["status"], "succeeded")
             self.assertEqual(latest["run_id"], run.run_id)
             self.assertEqual(manifest["stages"][0]["metadata"]["rows"], 1)
-            self.assertEqual(manifest["stages"][0]["inputs"][0]["sha256"], manifest["stages"][0]["outputs"][0]["sha256"])
+            self.assertEqual(
+                manifest["stages"][0]["inputs"][0]["sha256"],
+                manifest["stages"][0]["outputs"][0]["sha256"],
+            )
 
 
 if __name__ == "__main__":

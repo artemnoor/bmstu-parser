@@ -31,7 +31,9 @@ def major_rows(majors: Iterable[Major]) -> list[dict[str, Any]]:
                 "faculty_name": major.faculty_name,
                 "faculties": json_cell([asdict(item) for item in major.faculties]),
                 "tuition": json_cell([asdict(item) for item in major.tuition]),
-                "entrance_requirements": json_cell([asdict(item) for item in major.entrance_requirements]),
+                "entrance_requirements": json_cell(
+                    [asdict(item) for item in major.entrance_requirements]
+                ),
                 "places": json_cell([asdict(item) for item in major.places]),
                 "department_count": len(major.departments),
                 "program_count": len(major.educational_programs),
@@ -64,7 +66,9 @@ def department_rows(majors: Iterable[Major]) -> list[dict[str, Any]]:
                     "description": department.description,
                     "practice_description": department.practice_description,
                     "key_disciplines": json_cell(department.key_disciplines),
-                    "historical_passing_scores": json_cell([asdict(item) for item in department.historical_passing_scores]),
+                    "historical_passing_scores": json_cell(
+                        [asdict(item) for item in department.historical_passing_scores]
+                    ),
                     "program_count": len(department.educational_programs),
                     "phone": department.phone,
                     "address": department.address,
@@ -81,6 +85,7 @@ def educational_program_rows(majors: Iterable[Major]) -> list[dict[str, Any]]:
             rows.append(
                 {
                     "id": program.id,
+                    "legacy_id": program.legacy_id,
                     "major_id": major.id,
                     "major_slug": major.slug,
                     "major_code": major.code,
@@ -96,7 +101,9 @@ def educational_program_rows(majors: Iterable[Major]) -> list[dict[str, Any]]:
                     "study_plan_url": program.study_plan_url,
                     "study_plan_status": program.study_plan.status,
                     "study_plan_files": len(program.study_plan.files),
-                    "practice_partners": json_cell([asdict(item) for item in program.practice_partners]),
+                    "practice_partners": json_cell(
+                        [asdict(item) for item in program.practice_partners]
+                    ),
                     "source_page": program.provenance.detail_page,
                 }
             )
@@ -110,6 +117,7 @@ def entrance_subject_rows(majors: Iterable[Major]) -> list[dict[str, Any]]:
             rows.append(
                 {
                     "id": requirement.id,
+                    "legacy_id": requirement.legacy_id,
                     "major_id": major.id,
                     "major_slug": major.slug,
                     "major_code": major.code,
@@ -118,6 +126,10 @@ def entrance_subject_rows(majors: Iterable[Major]) -> list[dict[str, Any]]:
                     "minimum_score": requirement.minimum_score,
                     "is_choice": requirement.is_choice,
                     "requirement_type": requirement.requirement_type,
+                    "minimum_score_raw": requirement.minimum_score_raw,
+                    "normalization_warnings": json_cell(
+                        requirement.normalization_warnings
+                    ),
                 }
             )
     return rows
@@ -130,6 +142,7 @@ def tuition_rows(majors: Iterable[Major]) -> list[dict[str, Any]]:
             rows.append(
                 {
                     "id": tuition.id,
+                    "legacy_id": tuition.legacy_id,
                     "major_id": major.id,
                     "major_slug": major.slug,
                     "major_code": major.code,
@@ -141,6 +154,9 @@ def tuition_rows(majors: Iterable[Major]) -> list[dict[str, Any]]:
                     "term": tuition.term,
                     "discount_url": tuition.discount_url,
                     "subtitle": tuition.subtitle,
+                    "value_raw": tuition.value_raw,
+                    "discount_value_raw": tuition.discount_value_raw,
+                    "normalization_warnings": json_cell(tuition.normalization_warnings),
                 }
             )
     return rows
@@ -194,6 +210,7 @@ def historical_score_rows(majors: Iterable[Major]) -> list[dict[str, Any]]:
             rows.append(
                 {
                     "id": score.id,
+                    "legacy_id": score.legacy_id,
                     "major_id": major.id,
                     "major_slug": major.slug,
                     "major_code": major.code,
@@ -202,6 +219,9 @@ def historical_score_rows(majors: Iterable[Major]) -> list[dict[str, Any]]:
                     "department_name": score.department_name,
                     "year": score.year,
                     "score": score.score,
+                    "year_raw": score.year_raw,
+                    "score_raw": score.score_raw,
+                    "normalization_warnings": json_cell(score.normalization_warnings),
                 }
             )
     return rows
@@ -237,6 +257,10 @@ def study_plan_file_rows(majors: Iterable[Major]) -> list[dict[str, Any]]:
                         "downloaded": file_info.downloaded,
                         "downloaded_size": file_info.downloaded_size,
                         "download_error": file_info.download_error or "",
+                        "size_raw": file_info.size_raw,
+                        "normalization_warnings": json_cell(
+                            file_info.normalization_warnings
+                        ),
                     }
                 )
     return rows
@@ -245,3 +269,35 @@ def study_plan_file_rows(majors: Iterable[Major]) -> list[dict[str, Any]]:
 def canonical_records(majors: Iterable[Major]) -> list[dict[str, Any]]:
     return _records(majors)
 
+
+def id_aliases(majors: Iterable[Major]) -> list[dict[str, str]]:
+    """Expose migrations from index-based IDs to business-key IDs."""
+
+    aliases: list[dict[str, str]] = []
+
+    def add(entity_type: str, identifier: str, legacy_id: str) -> None:
+        if legacy_id and legacy_id != identifier:
+            aliases.append(
+                {
+                    "legacy_id": legacy_id,
+                    "canonical_id": identifier,
+                    "entity_type": entity_type,
+                }
+            )
+
+    for major in majors:
+        for requirement in major.entrance_requirements:
+            add("entrance_requirement", requirement.id, requirement.legacy_id)
+        for tuition in major.tuition:
+            add("tuition_option", tuition.id, tuition.legacy_id)
+        for place in major.places:
+            add("admission_place", place.id, place.legacy_id)
+        for score in major.historical_passing_scores:
+            add("historical_passing_score", score.id, score.legacy_id)
+        for department in major.departments:
+            for program in department.educational_programs:
+                add("educational_program", program.id, program.legacy_id)
+    return sorted(
+        aliases,
+        key=lambda item: (item["entity_type"], item["legacy_id"], item["canonical_id"]),
+    )

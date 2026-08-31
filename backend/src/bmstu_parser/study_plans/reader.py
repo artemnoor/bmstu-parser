@@ -64,9 +64,17 @@ def _xml_pages(xml_bytes: bytes) -> list[dict[str, Any]]:
     ):
         words: list[dict[str, Any]] = []
         lines: list[dict[str, Any]] = []
-        for line_element in (element for element in page_element.iter() if _local_name(element.tag) == "line"):
+        for line_element in (
+            element
+            for element in page_element.iter()
+            if _local_name(element.tag) == "line"
+        ):
             line_words: list[dict[str, Any]] = []
-            for word_element in (element for element in line_element if _local_name(element.tag) == "word"):
+            for word_element in (
+                element
+                for element in line_element
+                if _local_name(element.tag) == "word"
+            ):
                 text = "".join(word_element.itertext())
                 if not text:
                     continue
@@ -104,7 +112,9 @@ def _xml_pages(xml_bytes: bytes) -> list[dict[str, Any]]:
     return pages
 
 
-def _words_in_cell(words: list[dict[str, Any]], cell: tuple[float, float, float, float]) -> list[dict[str, Any]]:
+def _words_in_cell(
+    words: list[dict[str, Any]], cell: tuple[float, float, float, float]
+) -> list[dict[str, Any]]:
     x0, top, x1, bottom = cell
     selected = []
     for word in words:
@@ -139,7 +149,9 @@ def _classify_table(table: Any) -> str:
     return "other"
 
 
-def _extract_pdf(path: Path, document_id: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]], str, list[str]]:
+def _extract_pdf(
+    path: Path, document_id: str
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], str, list[str]]:
     pdftotext = shutil.which("pdftotext")
     if not pdftotext:
         raise RuntimeError("Не найден pdftotext из Poppler")
@@ -156,14 +168,22 @@ def _extract_pdf(path: Path, document_id: str) -> tuple[list[dict[str, Any]], li
             capture_output=True,
         )
         if bbox_process.returncode != 0:
-            raise RuntimeError((bbox_process.stderr or b"pdftotext failed").decode("utf-8", errors="replace"))
+            raise RuntimeError(
+                (bbox_process.stderr or b"pdftotext failed").decode(
+                    "utf-8", errors="replace"
+                )
+            )
         layout_process = subprocess.run(
             [pdftotext, "-layout", "-enc", "UTF-8", str(source_path), "-"],
             check=False,
             capture_output=True,
         )
         if layout_process.returncode != 0:
-            raise RuntimeError((layout_process.stderr or b"pdftotext failed").decode("utf-8", errors="replace"))
+            raise RuntimeError(
+                (layout_process.stderr or b"pdftotext failed").decode(
+                    "utf-8", errors="replace"
+                )
+            )
         pages = _xml_pages(bbox_process.stdout)
         tables: list[dict[str, Any]] = []
         warnings: list[str] = []
@@ -180,14 +200,20 @@ def _extract_pdf(path: Path, document_id: str) -> tuple[list[dict[str, Any]], li
             }
             with pdfplumber.open(str(source_path)) as pdf:
                 if len(pdf.pages) != len(pages):
-                    warnings.append(f"Количество страниц отличается: bbox={len(pages)}, pdfplumber={len(pdf.pages)}")
+                    warnings.append(
+                        f"Количество страниц отличается: bbox={len(pages)}, pdfplumber={len(pdf.pages)}"
+                    )
                 for page_number, page in enumerate(pdf.pages, start=1):
                     if page_number > len(pages):
                         break
                     try:
                         detected = page.find_tables(table_settings=settings)
-                    except Exception as exc:  # pragma: no cover - depends on malformed PDFs
-                        warnings.append(f"Страница {page_number}: ошибка поиска таблиц: {exc}")
+                    except (
+                        Exception
+                    ) as exc:  # pragma: no cover - depends on malformed PDFs
+                        warnings.append(
+                            f"Страница {page_number}: ошибка поиска таблиц: {exc}"
+                        )
                         detected = []
                     page_words = pages[page_number - 1]["words"]
                     for table_index, detected_table in enumerate(detected):
@@ -197,7 +223,12 @@ def _extract_pdf(path: Path, document_id: str) -> tuple[list[dict[str, Any]], li
                         for row_index, row in enumerate(detected_table.rows):
                             cell_row: list[dict[str, Any]] = []
                             for column_index, cell in enumerate(row.cells):
-                                cell_identifier = stable_id("study-plan-cell", identifier, row_index, column_index)
+                                cell_identifier = stable_id(
+                                    "study-plan-cell",
+                                    identifier,
+                                    row_index,
+                                    column_index,
+                                )
                                 if cell is None:
                                     cell_row.append(
                                         {
@@ -226,7 +257,9 @@ def _extract_pdf(path: Path, document_id: str) -> tuple[list[dict[str, Any]], li
                                             "x1": cell[2],
                                             "bottom": cell[3],
                                         },
-                                        "word_ids": [word["id"] for word in selected_words],
+                                        "word_ids": [
+                                            word["id"] for word in selected_words
+                                        ],
                                         "cell_kind": "cell",
                                     }
                                 )
@@ -244,24 +277,35 @@ def _extract_pdf(path: Path, document_id: str) -> tuple[list[dict[str, Any]], li
                                 "bottom": detected_table.bbox[3],
                             },
                             "row_count": len(cell_rows),
-                            "column_count": max((len(row) for row in cell_rows), default=0),
+                            "column_count": max(
+                                (len(row) for row in cell_rows), default=0
+                            ),
                             "rows": cell_rows,
                             "extraction_method": "pdfplumber-grid+pdftotext-bbox",
                         }
                         tables.append(record)
                         pages[page_number - 1]["table_ids"].append(identifier)
-        except ImportError as exc:  # pragma: no cover - dependency is declared in pyproject
+        except (
+            ImportError
+        ) as exc:  # pragma: no cover - dependency is declared in pyproject
             raise RuntimeError(f"Не установлен pdfplumber: {exc}") from exc
 
         if not tables:
             warnings.append("На страницах не обнаружены таблицы по линиям")
-        return pages, tables, layout_process.stdout.decode("utf-8", errors="replace"), warnings
+        return (
+            pages,
+            tables,
+            layout_process.stdout.decode("utf-8", errors="replace"),
+            warnings,
+        )
     finally:
         if temp_dir is not None:
             temp_dir.cleanup()
 
 
-def _extract_docx(path: Path, document_id: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]], str, list[str]]:
+def _extract_docx(
+    path: Path, document_id: str
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], str, list[str]]:
     try:
         from docx import Document
     except ImportError as exc:  # pragma: no cover - dependency is declared in pyproject
@@ -280,7 +324,9 @@ def _extract_docx(path: Path, document_id: str) -> tuple[list[dict[str, Any]], l
             for column_index, cell in enumerate(row.cells):
                 cell_row.append(
                     {
-                        "id": stable_id("study-plan-cell", identifier, row_index, column_index),
+                        "id": stable_id(
+                            "study-plan-cell", identifier, row_index, column_index
+                        ),
                         "table_id": identifier,
                         "row_index": row_index,
                         "column_index": column_index,
@@ -328,7 +374,9 @@ def extract_document(
     reader_backend: str | DocumentReader = "native",
 ) -> dict[str, Any]:
     path = root / Path(reference.local_path.replace("\\", "/"))
-    source_size, source_sha256, head = _hash_file(path) if path.exists() else (0, "", b"")
+    source_size, source_sha256, head = (
+        _hash_file(path) if path.exists() else (0, "", b"")
+    )
     # Slots dataclasses do not expose __dict__; keep the explicit representation deterministic.
     source_references = [
         {
@@ -381,27 +429,35 @@ def extract_document(
             base["document"]["errors"] = [f"Ожидался PDF/DOCX, получен {kind}"]
             return base
         backend = get_reader_backend(reader_backend)
-        pages, tables, layout_text, warnings = backend.extract(path, reference.document_id)
+        pages, tables, layout_text, warnings = backend.extract(
+            path, reference.document_id
+        )
         base["pages"] = pages
         base["tables"] = tables
         base["layout_text"] = layout_text
         base["document"]["extraction_backend"] = backend.name
         base["document"]["status"] = "ok" if tables else "ok_no_tables"
         base["document"]["page_count"] = len(pages)
-        base["document"]["paragraph_count"] = sum(len(page.get("lines", [])) for page in pages)
+        base["document"]["paragraph_count"] = sum(
+            len(page.get("lines", [])) for page in pages
+        )
         base["document"]["table_count"] = len(tables)
         base["document"]["row_count"] = sum(table["row_count"] for table in tables)
         base["document"]["cell_count"] = sum(
             len(row) for table in tables for row in table.get("rows", [])
         )
         base["document"]["warnings"] = warnings
-    except Exception as exc:  # preserve an auditable failed document rather than dropping it
+    except (
+        Exception
+    ) as exc:  # preserve an auditable failed document rather than dropping it
         base["document"]["status"] = "error"
         base["document"]["errors"] = [f"{type(exc).__name__}: {exc}"]
     return base
 
 
-def curriculum_row_record(table: dict[str, Any], row_index: int, cells: list[dict[str, Any]]) -> dict[str, Any]:
+def curriculum_row_record(
+    table: dict[str, Any], row_index: int, cells: list[dict[str, Any]]
+) -> dict[str, Any]:
     values = [cell.get("text", "").strip() for cell in cells]
     first = values[0] if values else ""
     second = values[1] if len(values) > 1 else ""

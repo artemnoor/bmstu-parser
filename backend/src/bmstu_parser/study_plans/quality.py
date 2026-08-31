@@ -14,7 +14,13 @@ def _reference_value(reference: Any, field: str) -> str:
 def _reference_key(reference: Any) -> tuple[str, ...]:
     return tuple(
         _reference_value(reference, field)
-        for field in ("document_id", "local_path", "program_id", "plan_url", "resolved_url")
+        for field in (
+            "document_id",
+            "local_path",
+            "program_id",
+            "plan_url",
+            "resolved_url",
+        )
     )
 
 
@@ -28,27 +34,36 @@ def validate_extractions(
     invalid_references: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     manifest_references = all_references or references
-    expected_reference_keys = Counter(_reference_key(reference) for reference in manifest_references)
+    expected_reference_keys = Counter(
+        _reference_key(reference) for reference in manifest_references
+    )
     attached_references = [
         reference
         for item in results
         for reference in item["document"].get("source_references", [])
     ]
-    attached_reference_keys = Counter(_reference_key(reference) for reference in attached_references)
+    attached_reference_keys = Counter(
+        _reference_key(reference) for reference in attached_references
+    )
     expected_paths = {
         reference.get("local_path", "").replace("\\", "/")
         for reference in attached_references
     }
     actual_paths = {path.as_posix() for path in physical_files}
     invalid_results = [
-        {"document_id": item["document"].get("document_id"), "status": item["document"].get("status"), "errors": item["document"].get("errors", [])}
+        {
+            "document_id": item["document"].get("document_id"),
+            "status": item["document"].get("status"),
+            "errors": item["document"].get("errors", []),
+        }
         for item in results
         if item["document"].get("status") in {"missing", "invalid_source", "error"}
     ]
     tableless_pdfs = [
         item["document"].get("document_id")
         for item in results
-        if item["document"].get("kind") == "pdf" and item["document"].get("table_count", 0) == 0
+        if item["document"].get("kind") == "pdf"
+        and item["document"].get("table_count", 0) == 0
     ]
     no_raw_content = [
         item["document"].get("document_id")
@@ -62,7 +77,9 @@ def validate_extractions(
     table_count_mismatches: list[dict[str, Any]] = []
     for item in results:
         document = item["document"]
-        if document.get("expected_size") is not None and document.get("source_size") != document.get("expected_size"):
+        if document.get("expected_size") is not None and document.get(
+            "source_size"
+        ) != document.get("expected_size"):
             size_mismatches.append(
                 {
                     "document_id": document.get("document_id"),
@@ -71,7 +88,10 @@ def validate_extractions(
                 }
             )
         expected_hash = str(document.get("expected_sha256") or "").lower()
-        if expected_hash and expected_hash != str(document.get("source_sha256") or "").lower():
+        if (
+            expected_hash
+            and expected_hash != str(document.get("source_sha256") or "").lower()
+        ):
             hash_mismatches.append(
                 {
                     "document_id": document.get("document_id"),
@@ -80,7 +100,9 @@ def validate_extractions(
                 }
             )
         actual_table_count = len(item.get("tables", []))
-        actual_row_count = sum(len(table.get("rows", [])) for table in item.get("tables", []))
+        actual_row_count = sum(
+            len(table.get("rows", [])) for table in item.get("tables", [])
+        )
         actual_cell_count = sum(
             len(row)
             for table in item.get("tables", [])
@@ -104,7 +126,10 @@ def validate_extractions(
         for table in item.get("tables", []):
             actual_table_rows = len(table.get("rows", []))
             declared_table_rows = table.get("row_count")
-            if declared_table_rows is not None and int(declared_table_rows or 0) != actual_table_rows:
+            if (
+                declared_table_rows is not None
+                and int(declared_table_rows or 0) != actual_table_rows
+            ):
                 table_count_mismatches.append(
                     {
                         "table_id": table.get("id"),
@@ -117,8 +142,10 @@ def validate_extractions(
     kinds = Counter(item["document"].get("kind", "unknown") for item in results)
     checks = {
         "canonical_document_count_matches_manifest": len(results) == len(references),
-        "manifest_reference_count_matches_attached": len(manifest_references) == len(attached_references),
-        "all_manifest_references_attached": expected_reference_keys == attached_reference_keys,
+        "manifest_reference_count_matches_attached": len(manifest_references)
+        == len(attached_references),
+        "all_manifest_references_attached": expected_reference_keys
+        == attached_reference_keys,
         "all_referenced_files_exist": expected_paths.issubset(actual_paths),
         "no_invalid_or_failed_documents": not invalid_results,
         "all_pdf_tables_detected": not tableless_pdfs,

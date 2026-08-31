@@ -11,7 +11,9 @@ SOURCE_PAGE = f"{SITE_BASE}/bachelor/majors"
 LIST_ENDPOINT = f"{API_BASE}/majors/{DEGREE}"
 DETAIL_ENDPOINT = f"{API_BASE}/majors/{{slug}}"
 YANDEX_RESOURCE_ENDPOINT = "https://cloud-api.yandex.net/v1/disk/public/resources"
-YANDEX_DOWNLOAD_ENDPOINT = "https://cloud-api.yandex.net/v1/disk/public/resources/download"
+YANDEX_DOWNLOAD_ENDPOINT = (
+    "https://cloud-api.yandex.net/v1/disk/public/resources/download"
+)
 
 
 @dataclass(slots=True)
