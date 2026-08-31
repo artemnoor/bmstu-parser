@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0e1829">
+  <link rel="icon" href="data:,">
+  <title>BMSTU Data Console</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="api-client.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="Основная навигация">
+      <a class="brand" href="#overview" data-view="overview">
+        <span class="brand-mark">BM</span>
+        <span><strong>BMSTU</strong><small>Data Console</small></span>
+      </a>
+      <p class="sidebar-label">Рабочие области</p>
+      <nav class="nav-list">
+        <button type="button" data-view="overview" class="nav-item is-active"><span>⌂</span>Обзор</button>
+        <button type="button" data-view="majors" class="nav-item"><span>◎</span>Направления</button>
+        <button type="button" data-view="programs" class="nav-item"><span>◈</span>Программы</button>
+        <button type="button" data-view="plans" class="nav-item"><span>▤</span>Учебные планы</button>
+        <button type="button" data-view="disciplines" class="nav-item"><span>◌</span>Предметы</button>
+        <button type="button" data-view="datasets" class="nav-item"><span>▦</span>Каталог данных</button>
+      </nav>
+      <div id="api-status" class="service-status is-muted"><i></i><span>Проверка API…</span></div>
+    </aside>
+
+    <main class="main-content">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">BMSTU / DATA SERVICE</p>
+          <h1 id="page-title">Операционный обзор</h1>
+        </div>
+        <div class="endpoint-control">
+          <label for="api-endpoint">API endpoint</label>
+          <div class="endpoint-row">
+            <input id="api-endpoint" type="url" autocomplete="url" aria-label="API endpoint">
+            <button id="refresh-button" type="button" class="button button-primary"><span>↻</span> Обновить</button>
+          </div>
+        </div>
+      </header>
+      <div id="app-alert" class="alert" role="alert" hidden></div>
+      <section id="app-view" aria-live="polite"></section>
+    </main>
+  </div>
+
+  <aside id="detail-drawer" class="drawer" aria-label="Детали" aria-hidden="true">
+    <div class="drawer-head">
+      <div><p class="eyebrow">DETAIL VIEW</p><h2 id="drawer-title">Детали</h2></div>
+      <button id="drawer-close" type="button" class="icon-button" aria-label="Закрыть">×</button>
+    </div>
+    <div id="drawer-body" class="drawer-body"></div>
+  </aside>
+  <div id="drawer-backdrop" class="drawer-backdrop" hidden></div>
+</body>
+</html>

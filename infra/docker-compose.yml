@@ -1,0 +1,32 @@
+services:
+  bmstu-api:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      BMSTU_RESULT_DIR: /app/data/result
+      BMSTU_API_HOST: 0.0.0.0
+      BMSTU_API_PORT: 8000
+      BMSTU_ENV: ${BMSTU_ENV:-development}
+      BMSTU_API_KEY: ${BMSTU_API_KEY:-}
+      BMSTU_CORS_ORIGINS: ${BMSTU_CORS_ORIGINS:-}
+    volumes:
+      - ../data/result:/app/data/result
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  bmstu-frontend:
+    image: nginx:1.27-alpine
+    depends_on:
+      bmstu-api:
+        condition: service_healthy
+    ports:
+      - "5173:80"
+    volumes:
+      - ../frontend:/usr/share/nginx/html:ro
+      - ../frontend/nginx.conf:/etc/nginx/conf.d/default.conf:ro

@@ -1,0 +1,9 @@
+{
+  "name": "bmstu-education-frontend",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Independent BMSTU data console frontend",
+  "scripts": {
+    "dev": "python -m http.server 5173 --directory ."
+  }
+}

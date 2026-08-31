@@ -1,0 +1,172 @@
+# Архитектура BMSTU-парсера
+
+## Целевой принцип
+
+Архитектура вдохновлена Foundry-подходом Palantir, но не является копированием их продукта. В Foundry Ontology является операционным семантическим слоем поверх наборов данных: сущности представляются объектами, их атрибуты — свойствами, а связи между сущностями — links. Это описано в [официальном обзоре Ontology](https://www.palantir.com/docs/foundry/ontology/overview). Поэтому исходные ответы сайта не смешиваются с прикладной моделью.
+
+У проекта есть четыре независимых представления данных:
+
+1. **Raw** — ответы источника как воспроизводимые снимки.
+2. **Transform** — очистка HTML, приведение типов, нормализация названий и ссылок.
+3. **Ontology** — устойчивые объекты и связи предметной области.
+4. **Projections** — JSON и CSV для конкретных потребителей.
+
+Это близко к идее Foundry, где наборы данных являются фундаментальным представлением, а затем проходят преобразования и отображаются в Ontology; см. [описание datasets](https://www.palantir.com/docs/foundry/data-integration/datasets) и [модель inputs → transforms → outputs](https://www.palantir.com/docs/foundry/pipeline-builder/core-concepts).
+
+## Поток данных
+
+```text
+Mirror API                         Yandex public resources
+    │                                      │
+    ├─ majors list                         ├─ resolve clck.su
+    └─ major details                       ├─ enumerate folders
+              │                            └─ download documents
+              └──────────────┬─────────────┘
+                             ↓
+                    transform.normalize
+                             ↓
+                    canonical domain model
+                             ↓
+                    transform.ontology
+                             ↓
+                      quality.checks
+                             ↓
+                   outputs.writers/projections
+```
+
+## Каноническая предметная модель
+
+| Сущность | Ontology object | Основной источник |
+|---|---|---|
+| Направление | `major` | карточка направления |
+| Факультет | `faculty` | список направлений и карточка |
+| Кафедра | `department` | `chairs.items[]` карточки |
+| Образовательная программа | `educational_program` | `chairs.items[].educationalProgram.items[]` |
+| Вступительное требование | `entrance_requirement` | `points[]` |
+| Вариант стоимости | `tuition_option` | `price[]` |
+| Места | `admission_place` | `places[]` |
+| Исторический проходной балл | `historical_passing_score` | `chairs.items[].oldPoints.points[]` |
+| Дисциплина | `discipline` | `courses.items`, кафедра или программа |
+| Партнёр практики | `practice_partner` | `educationalProgram.practice[]` |
+| Учебный план | `study_plan` | `educationalProgram.plan` |
+| Документ плана | `study_plan_document` | публичный файл Yandex |
+
+Ключевые связи:
+
+- `major_offered_by_faculty`;
+- `major_prepared_by_department`;
+- `department_part_of_faculty`;
+- `department_runs_program`;
+- `major_has_educational_program`;
+- `program_contains_discipline`;
+- `program_has_study_plan` → `study_plan_contains_document`;
+- `program_has_practice_partner`;
+- связи направления с требованиями, стоимостью, местами и историческими баллами.
+
+Связь «кафедра ведёт программу» создаётся только потому, что программа действительно вложена в ответе API конкретной кафедры. Она не восстанавливается эвристикой по названию. Это важное правило против ложных отношений.
+
+## Идентичность и provenance
+
+Каждый объект получает детерминированный ID вида `bmstu:<type>:<hash>`, вычисленный из устойчивого исходного ключа. Читаемые `slug`, код и название сохраняются отдельными свойствами. В объекте и связи хранится provenance: URL страницы, URL API, время получения и путь raw-снимка.
+
+Такой подход соответствует идее метаданных свойств: у свойства должны быть стабильная идентичность, понятное имя и описание; см. [официальную документацию Palantir по property metadata](https://www.palantir.com/docs/foundry/object-link-types/property-metadata). Для обновления данных можно сравнивать raw-снимки и канонические ID, не привязывая downstream-код к порядку элементов ответа.
+
+## Quality gate
+
+Перед записью результата проверяются:
+
+- совпадение количества элементов списка с `meta.count` API;
+- отсутствие повторяющихся `slug`;
+- наличие успешной карточки для каждого элемента списка;
+- заполненность названия и кода направления;
+- наличие контекста кафедры у каждой программы;
+- отсутствие ссылок Ontology на несуществующие объекты;
+- ошибки разрешения или скачивания планов.
+
+Статус `resolved_empty` не считается ошибкой: это означает, что публичная папка источника существует, но в ней нет файлов. Все такие случаи остаются видимыми в `parse_report.json`.
+
+## Структура кода
+
+```text
+BMSTU/
+├── backend/
+│   ├── src/bmstu_parser/  # ingestion, balancing, ontology, quality, API
+│   ├── tests/             # backend unit/integration tests
+│   ├── pyproject.toml     # isolated Python package
+│   └── Dockerfile
+├── frontend/              # static client; no Python/data access
+├── contracts/             # generated OpenAPI seam
+├── infra/                 # separate backend/frontend containers
+├── data/                  # backend-owned raw and derived datasets
+└── docs/
+```
+
+## Отдельный слой учебных планов
+
+Скачанный PDF/DOCX рассматривается как отдельный raw-документ, а не как строка в карточке программы. Команда `extract-study-plans` выполняет следующий поток:
+
+```text
+PDF/DOCX bytes + source metadata
+            ↓
+reader backend (native by default; optional Docling adapter)
+            ↓
+Poppler/pdfplumber/python-docx or Docling → canonical pages/tables/cells
+            ↓
+documents → pages → tables → rows → cells
+            ↓
+semantic curriculum mapping
+            ↓
+documents → curriculum rows → disciplines → semester loads
+            ↓
+typed rules + non-destructive entity resolution
+            ↓
+CSV/JSONL datasets + document/table/row/discipline/entity ontology
+```
+
+Для PDF сохраняются layout-текст, все извлечённые слова с координатами, геометрия каждой ячейки и `word_ids`, из которых она собрана. Полный табличный слой находится в `study_plan_cells.csv`; это dataset-слой. Ontology содержит семантические объекты документа, таблицы и строк, а не копирует миллион ячеек внутрь каждого объекта. Такой раздельный pipeline соответствует принципу Foundry «inputs → transforms → outputs» и отделению dataset от семантического слоя ([официальная документация Palantir](https://www.palantir.com/docs/foundry/data-integration/datasets)).
+
+Команда `extract-study-plan-semantics` поверх этого dataset-слоя распознаёт curriculum-заголовки и строит типизированные записи:
+
+- предмет: код, название, кафедра, обязательность/выборность и путь разделов;
+- общая трудоёмкость: з.е., общее количество часов, аудиторные часы;
+- виды занятий: лекции, семинары, лабораторные и самостоятельная/иная работа;
+- каждый семестр: недели, з.е., часы, аудиторная и самостоятельная нагрузка;
+- контроль: исходная форма (`Зчт`, `Экз`, `ДЗчт`, `РЭкз`, `КуР`, `КуП`, `ГЭК`, `ЭК`) и нормализованные control kinds;
+- `raw_bands` и `normalization_notes`: исходный текст пяти семестровых полос и объяснение детерминированной нормализации объединённых ячеек;
+- lineage: `source_row_id`, `source_cell_ids`, исходный CSV и исходный документ.
+
+Семестровая схема не зашита одним фиксированным числом: она извлекается из заголовка конкретного документа. Поддержаны варианты на 10, 12 и 14 семестров. Если в исходном плане общая нагрузка указана, но числовая семестровая нагрузка не распределена (например, у альтернативного электива), это фиксируется как `unallocated`, а не теряется и не считается ошибкой.
+
+Для PDF с объединёнными ячейками контрольная форма разрешается по координате начала PDF-слова, а порядок слов сначала стабилизируется по `(top, x0, id)`. Поэтому результат не зависит от порядка обхода объектов и не требует ручного выбора ячейки. Сырой текст и координаты при этом остаются в dataset-слое.
+
+Quality gate учебных планов проверяет каноническое число документов, прикрепление всех ссылок манифеста к документам, количество физических файлов, сигнатуры PDF/DOCX, наличие таблиц у каждого PDF, наличие layout-текста, совпадение размера и SHA-256 с метаданными Yandex, отсутствие неразрешённых файлов и наличие materialized rows/cells. Один публичный документ может быть связан с несколькими программами: он извлекается один раз по детерминированному `document_id`, а все исходные ссылки сохраняются в `source_references` и Ontology links.
+
+API является отдельным consumption/control-слоем поверх этих datasets. Он не дублирует extraction-логику: read endpoints читают allowlist datasets построчно, а operation endpoints запускают существующие pipeline в единственной фоновой очереди. Backend можно вынести в отдельный контейнер, подключив `data/result` как volume.
+
+Статическая визуализация `frontend/` является отдельным клиентским слоем и не входит в контейнер API. В Docker nginx проксирует `/api` и `/health` во внутренний backend, поэтому браузер работает same-origin; при отдельной раздаче frontend использует явный CORS backend'а. Raw-файлы frontend не получает.
+
+## Контракт этапов и локальная lineage-модель
+
+Архитектура повторяет полезную часть модели Foundry, но не является самим Palantir Foundry. В Foundry pipeline связывает входные datasets, transforms, outputs и data expectations; Ontology предоставляет прикладной слой объектов и связей поверх данных. В BMSTU этому соответствуют следующие этапы:
+
+```text
+ingest                 raw snapshots / downloaded documents
+    ↓
+extract_documents      pages → tables → rows → cells
+    ↓
+semantic_transform     curriculum rows → disciplines → semester loads
+    ↓
+ontology_projection    typed objects + links + provenance
+    ↓
+quality_gate           expectations, reconciliation, referential integrity
+    ↓
+API / web projections   read-only datasets and controlled operations
+```
+
+Каждый исполняемый этап теперь пишет `data/result/pipeline_runs/<run_id>.json`. В манифесте фиксируются статус, время, входные и выходные артефакты, размер, SHA-256, ключевые счётчики и результат quality gate; `latest.json` указывает последний запуск. Это делает запуск воспроизводимым и позволяет отличать «файл существует» от «файл получен конкретным преобразованием».
+
+Извлечение документов дополнительно ведёт атомарный checkpoint ledger. Результат переиспользуется только при совпадении fingerprint файла, локальной ссылки, ожидаемых metadata и backend'а. Запись нового JSON/CSV проходит через соседний временный файл с заменой назначения после успешного закрытия; сбой не оставляет частично записанный dataset.
+
+`quality_gate` разделяет блокирующие ошибки и исходные gaps. Например, отсутствие семестровой раскладки у альтернативного электива не подменяется нулём: исходная общая нагрузка сохраняется, gap попадает в отчёт, а строгие проверки останавливают запуск при потере таблиц, строк, ячеек, контролей или ссылок. Дополнительно проверяется соответствие заявленных `document/table` counts фактически materialized rows/cells и точное покрытие detail-запросами всех элементов исходного списка.
+
+История запусков доступна через `GET /api/v1/runs` и `GET /api/v1/runs/{run_id}`. Это локальный control-plane проекта, а не попытка имитировать внутренние сервисы Foundry; для production остаются отдельные задачи: постоянное хранилище build history, расписание, внешние метрики и авторизация пользователей.

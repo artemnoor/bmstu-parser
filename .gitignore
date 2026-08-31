@@ -1,0 +1,29 @@
+# Python caches and local environments
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+venv/
+*.egg-info/
+
+# Local environment files
+.env
+.env.*
+!.env.example
+
+# Generated parser outputs and downloaded source documents
+data/result/**
+!data/result/.gitkeep
+
+# Local analysis and browser artifacts
+graphify-out/
+.playwright-cli/
+playwright-report/
+test-results/
+node_modules/
+
+# Logs and temporary files
+*.log
+*.tmp
