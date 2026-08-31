@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import csv
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from ..config import API_BASE, DEGREE, LIST_ENDPOINT, SOURCE_PAGE
 from ..domain.models import Major

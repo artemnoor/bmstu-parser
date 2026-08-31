@@ -28,7 +28,7 @@ class ApiSettings:
         return self.environment.casefold() in {"production", "prod"}
 
     @classmethod
-    def from_env(cls) -> "ApiSettings":
+    def from_env(cls) -> ApiSettings:
         configured_origins = os.getenv("BMSTU_CORS_ORIGINS")
         environment = os.getenv("BMSTU_ENV", "development")
         origins: tuple[str, ...]

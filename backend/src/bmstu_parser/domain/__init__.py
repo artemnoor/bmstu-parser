@@ -8,8 +8,8 @@ from .models import (
     Major,
     PlanFile,
     PracticePartner,
-    SourceProvenance,
     SourceObservation,
+    SourceProvenance,
     StudyPlan,
     TuitionOption,
 )
@@ -24,8 +24,8 @@ __all__ = [
     "Major",
     "PlanFile",
     "PracticePartner",
-    "SourceProvenance",
     "SourceObservation",
+    "SourceProvenance",
     "StudyPlan",
     "TuitionOption",
 ]

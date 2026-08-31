@@ -9,13 +9,29 @@ from ..outputs.writers import write_json
 from ..runtime.lineage import PipelineRun
 from .semantic_curriculum import (
     control_kinds as _control_kinds,
+)
+from .semantic_curriculum import (
     control_tokens as _control_tokens,
+)
+from .semantic_curriculum import (
     number as _number,
+)
+from .semantic_curriculum import (
     number_tokens as _number_tokens,
+)
+from .semantic_curriculum import (
     part_type as _part_type,
+)
+from .semantic_curriculum import (
     row_kind as _row_kind,
+)
+from .semantic_curriculum import (
     semantic_row as _semantic_row,
+)
+from .semantic_curriculum import (
     strip_control_tokens as _strip_control_tokens,
+)
+from .semantic_curriculum import (
     unique_tokens as _unique_tokens,
 )
 from .semantic_geometry import band_payload as _band_payload
@@ -38,7 +54,11 @@ from .semantic_reconciliation import reconcile_totals as _reconcile_totals
 from .semantic_schema import (
     BASE_FIELD_NAMES,
     SEMESTER_FIELD_NAMES,
+)
+from .semantic_schema import (
     discover_schemas as _discover_schemas,
+)
+from .semantic_schema import (
     iter_curriculum_table_rows as _iter_curriculum_table_rows,
 )
 from .semantic_shared import clean as _clean
@@ -183,35 +203,35 @@ def enrich_existing_dataset(result_dir: Path) -> dict[str, Any]:
 
 
 __all__ = [
-    "extract_semantics",
-    "enrich_existing_dataset",
-    "write_semantic_dataset",
-    "extend_ontology_with_semantics",
-    "_semantic_row",
-    "_reconcile_totals",
-    "_csv_semantic_rows",
-    "_clean",
-    "_json_value",
-    "_number",
-    "_number_tokens",
-    "_control_tokens",
-    "_control_kinds",
-    "_strip_control_tokens",
-    "_unique_tokens",
-    "_row_kind",
-    "_part_type",
-    "_bbox",
-    "_cell_from_csv",
-    "_table_bounds",
-    "_normalized_span",
-    "_find_header_span",
-    "_join_words",
-    "_row_words",
-    "_overlap",
-    "_band_payload",
-    "_page_words_by_key",
-    "_semester_spans",
-    "_control_assignments",
     "BASE_FIELD_NAMES",
     "SEMESTER_FIELD_NAMES",
+    "_band_payload",
+    "_bbox",
+    "_cell_from_csv",
+    "_clean",
+    "_control_assignments",
+    "_control_kinds",
+    "_control_tokens",
+    "_csv_semantic_rows",
+    "_find_header_span",
+    "_join_words",
+    "_json_value",
+    "_normalized_span",
+    "_number",
+    "_number_tokens",
+    "_overlap",
+    "_page_words_by_key",
+    "_part_type",
+    "_reconcile_totals",
+    "_row_kind",
+    "_row_words",
+    "_semantic_row",
+    "_semester_spans",
+    "_strip_control_tokens",
+    "_table_bounds",
+    "_unique_tokens",
+    "enrich_existing_dataset",
+    "extend_ontology_with_semantics",
+    "extract_semantics",
+    "write_semantic_dataset",
 ]

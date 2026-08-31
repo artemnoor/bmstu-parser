@@ -18,7 +18,6 @@ from .reader import extract_document
 from .readers import DocumentReader, get_reader_backend
 from .writers import write_extraction_dataset
 
-
 LOGGER = logging.getLogger(__name__)
 
 

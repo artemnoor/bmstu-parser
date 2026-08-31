@@ -17,11 +17,7 @@ from .http import ApiClient, FetchError
 
 def is_yandex_public_url(url: str) -> bool:
     host = urlparse(url).netloc.lower().split(":", 1)[0]
-    return (
-        host.endswith("yandex.ru")
-        or host.endswith("yandex.com")
-        or host.endswith("yadi.sk")
-    )
+    return host.endswith(("yandex.ru", "yandex.com", "yadi.sk"))
 
 
 class StudyPlanResolver:

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Iterable
+from collections.abc import Iterable
+from typing import Any
 
 from .ids import discipline_id, row_id, semester_load_id
 from .semantic_geometry import (
@@ -12,7 +13,6 @@ from .semantic_geometry import (
 )
 from .semantic_schema import BASE_FIELD_NAMES, SEMESTER_FIELD_NAMES
 from .semantic_shared import clean
-
 
 NUMBER_RE = re.compile(r"[-+]?\d+(?:[\.,]\d+)?")
 CONTROL_RE = re.compile(r"ДЗчт|РЭкз|Зчт|Экз|ГЭК|КуР|КуП|ЭК", re.IGNORECASE)
@@ -177,9 +177,12 @@ def semantic_row(
     name = clean(base.get("name", ""))
     department = clean(base.get("department", ""))
     kind = row_kind(code, name)
-    if kind in {"cycle", "mandatory_group", "elective_group", "section"} and name:
-        if not state["section_path"] or state["section_path"][-1] != name:
-            state["section_path"].append(name)
+    if (
+        kind in {"cycle", "mandatory_group", "elective_group", "section"}
+        and name
+        and (not state["section_path"] or state["section_path"][-1] != name)
+    ):
+        state["section_path"].append(name)
     current_part_type = part_type(name, state.get("part_type", "unknown"))
     if kind in {"mandatory_group", "elective_group"}:
         state["part_type"] = current_part_type

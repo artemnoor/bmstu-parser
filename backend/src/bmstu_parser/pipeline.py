@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable, Protocol
+from typing import Any, Protocol
 
 from .config import LIST_ENDPOINT, Settings
 from .ingestion.http import ApiClient
@@ -16,7 +17,7 @@ from .transform.ontology import OntologyBuilder
 
 
 def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 class ScrapePipeline:
@@ -25,7 +26,7 @@ class ScrapePipeline:
         settings: Settings,
         *,
         client: ApiClient | None = None,
-        api: "MirrorApiPort" | None = None,
+        api: MirrorApiPort | None = None,
         normalizer: Normalizer | None = None,
         resolver_factory: Callable[[ApiClient, Path], StudyPlanResolver] | None = None,
         ontology_builder: OntologyBuilder | None = None,

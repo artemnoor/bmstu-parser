@@ -1,16 +1,16 @@
 from __future__ import annotations
 
-from copy import deepcopy
-from datetime import datetime, timedelta, timezone
 import json
-from pathlib import Path
 import sqlite3
+from copy import deepcopy
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from threading import RLock
-from typing import Any, Protocol
+from typing import Any, ClassVar, Protocol
 
 
 def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 class JobStore(Protocol):
@@ -66,7 +66,7 @@ class InMemoryJobStore:
 
     def prune(self) -> None:
         with self._lock:
-            cutoff = datetime.now(timezone.utc) - timedelta(seconds=self.ttl_seconds)
+            cutoff = datetime.now(UTC) - timedelta(seconds=self.ttl_seconds)
             for identifier, record in list(self._records.items()):
                 if record["status"] in {"queued", "running"}:
                     continue
@@ -85,8 +85,9 @@ class InMemoryJobStore:
                 if record["status"] not in {"queued", "running"}
             ]
             completed.sort(
-                key=lambda record: record.get("finished_at_utc")
-                or record["submitted_at_utc"],
+                key=lambda record: (
+                    record.get("finished_at_utc") or record["submitted_at_utc"]
+                ),
                 reverse=True,
             )
             for record in completed[self.max_records :]:
@@ -99,13 +100,15 @@ class InMemoryJobStore:
 class SqliteJobStore:
     """Persistent operation status store with restart recovery and retention."""
 
-    _UPDATABLE = {
-        "status",
-        "started_at_utc",
-        "finished_at_utc",
-        "result",
-        "error",
-    }
+    _UPDATABLE: ClassVar[frozenset[str]] = frozenset(
+        {
+            "status",
+            "started_at_utc",
+            "finished_at_utc",
+            "result",
+            "error",
+        }
+    )
 
     def __init__(
         self,
@@ -241,9 +244,7 @@ class SqliteJobStore:
             return self._decode(row) if row else None
 
     def prune(self) -> None:
-        cutoff = (
-            datetime.now(timezone.utc) - timedelta(seconds=self.ttl_seconds)
-        ).isoformat()
+        cutoff = (datetime.now(UTC) - timedelta(seconds=self.ttl_seconds)).isoformat()
         with self._lock:
             self._connection.execute(
                 "DELETE FROM operations WHERE status IN ('succeeded', 'failed') AND COALESCE(finished_at_utc, submitted_at_utc) < ?",

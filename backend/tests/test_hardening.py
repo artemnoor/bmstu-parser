@@ -10,9 +10,9 @@ from bmstu_parser.domain.ids import deterministic_record_ids, legacy_stable_id
 from bmstu_parser.domain.models import SourceProvenance
 from bmstu_parser.domain.provenance import merge_provenance
 from bmstu_parser.ingestion.mirror_api import DetailFetch
+from bmstu_parser.study_plans.semantics import enrich_existing_dataset
 from bmstu_parser.transform.normalize import Normalizer
 from bmstu_parser.transform.ontology import OntologyBuilder
-from bmstu_parser.study_plans.semantics import enrich_existing_dataset
 
 
 def _major(

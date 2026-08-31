@@ -5,9 +5,10 @@ import importlib
 import json
 import mimetypes
 import os
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 try:
     import duckdb

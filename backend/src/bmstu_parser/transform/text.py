@@ -5,44 +5,46 @@ import json
 import re
 import unicodedata
 from html.parser import HTMLParser
-from typing import Any
+from typing import Any, ClassVar
 from urllib.parse import urljoin
 
 from ..domain.types import json_default
 
 
 class _HTMLTextParser(HTMLParser):
-    BLOCK_TAGS = {
-        "address",
-        "article",
-        "aside",
-        "blockquote",
-        "br",
-        "div",
-        "dl",
-        "dt",
-        "dd",
-        "figcaption",
-        "figure",
-        "footer",
-        "h1",
-        "h2",
-        "h3",
-        "h4",
-        "h5",
-        "h6",
-        "header",
-        "li",
-        "main",
-        "nav",
-        "ol",
-        "p",
-        "pre",
-        "section",
-        "table",
-        "tr",
-        "ul",
-    }
+    BLOCK_TAGS: ClassVar[frozenset[str]] = frozenset(
+        {
+            "address",
+            "article",
+            "aside",
+            "blockquote",
+            "br",
+            "div",
+            "dl",
+            "dt",
+            "dd",
+            "figcaption",
+            "figure",
+            "footer",
+            "h1",
+            "h2",
+            "h3",
+            "h4",
+            "h5",
+            "h6",
+            "header",
+            "li",
+            "main",
+            "nav",
+            "ol",
+            "p",
+            "pre",
+            "section",
+            "table",
+            "tr",
+            "ul",
+        }
+    )
 
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
@@ -69,7 +71,8 @@ def clean_text(value: Any) -> str:
         parser.feed(text)
         parser.close()
         text = "".join(parser.parts)
-    except Exception:
+    # HTMLParser is intentionally best-effort for source fields from external APIs.
+    except Exception:  # noqa: BLE001
         text = re.sub(r"<[^>]+>", " ", text)
     text = html.unescape(text).replace("\xa0", " ")
     lines: list[str] = []

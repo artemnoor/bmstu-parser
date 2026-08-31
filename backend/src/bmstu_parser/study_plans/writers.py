@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import csv
 import json
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
-from ..outputs.writers import write_json
 from ..domain.types import json_default
+from ..outputs.writers import write_json
 from ..runtime.atomic import atomic_text_writer
 from ..transform.text import json_cell, safe_filename
 from .ids import row_id

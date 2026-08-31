@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import json
 import tempfile
+from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterator, TextIO
+from typing import Any, TextIO
 
 from ..domain.types import json_default
 

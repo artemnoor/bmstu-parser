@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from .semantic_shared import clean, json_value, read_jsonl
 
@@ -219,7 +220,7 @@ def control_assignments(
         if not tokens:
             continue
 
-        def distance(item: tuple[int, float, float]) -> float:
+        def distance(item: tuple[int, float, float], anchor: float = anchor) -> float:
             _semester, left, right = item
             if left <= anchor <= right:
                 return 0.0

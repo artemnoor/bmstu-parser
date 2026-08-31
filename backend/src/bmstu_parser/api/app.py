@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from contextlib import asynccontextmanager
 import hmac
 import re
-from typing import Any, Callable
+from collections.abc import Callable
+from contextlib import asynccontextmanager
+from typing import Any
 from uuid import uuid4
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, status
@@ -12,8 +13,8 @@ from fastapi.responses import FileResponse
 
 from .. import __version__
 from .config import ApiSettings
-from .jobs import JobManager, OperationConflictError
 from .job_store import SqliteJobStore
+from .jobs import JobManager, OperationConflictError
 from .models import (
     DatasetCatalogResponse,
     DatasetPage,
@@ -23,7 +24,6 @@ from .models import (
 )
 from .operations import execute_operation
 from .repository import DatasetNotFoundError, DatasetRepository, DatasetUnavailableError
-
 
 SERVICE_NAME = "bmstu-education-api"
 

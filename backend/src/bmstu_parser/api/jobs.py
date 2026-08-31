@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from threading import RLock
-from typing import Any, Callable
+from typing import Any
 from uuid import uuid4
 
 from .job_store import InMemoryJobStore, JobStore, utc_now
-
 
 LOGGER = logging.getLogger(__name__)
 
@@ -67,7 +67,7 @@ class JobManager:
         self.store.update(identifier, status="running", started_at_utc=utc_now())
         try:
             result = task()
-        except Exception as exc:  # noqa: BLE001 - operation status must be observable through the API.
+        except Exception as exc:
             LOGGER.exception("BMSTU API operation %s failed", identifier)
             self.store.update(
                 identifier,

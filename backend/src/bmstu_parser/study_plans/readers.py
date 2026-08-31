@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any, Protocol
 from pathlib import Path
+from typing import Any, Protocol
 
 from ..domain.ids import stable_id
-
 
 ReaderResult = tuple[list[dict[str, Any]], list[dict[str, Any]], str, list[str]]
 
@@ -124,7 +123,7 @@ class DoclingDocumentReader:
             else document
         )
         if not isinstance(data, dict):
-            raise RuntimeError("Docling вернул неподдерживаемую структуру документа")
+            raise TypeError("Docling вернул неподдерживаемую структуру документа")
 
         pages_data = data.get("pages") if isinstance(data.get("pages"), dict) else {}
         page_numbers: set[int] = set()

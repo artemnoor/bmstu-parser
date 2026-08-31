@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import csv
-from collections import defaultdict
-from pathlib import Path
 import re
-from typing import Any, Iterator
+from collections import defaultdict
+from collections.abc import Iterator
+from pathlib import Path
+from typing import Any
 
 from .semantic_geometry import cell_from_csv, find_header_span, table_bounds
 from .semantic_shared import clean
-
 
 SEMESTER_RE = re.compile(
     r"(?:(?:семестр)\s*)?(\d+)\s*[-–—]\s*(\d+)\s*недель",

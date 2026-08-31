@@ -311,7 +311,7 @@ class Normalizer:
                     department_id,
                     first_text(item.get("id"), item.get("code"), item.get("name")),
                 ),
-                legacy_key=lambda item, index: (
+                legacy_key=lambda item, index, department_id=department_id: (
                     major_slug,
                     department_id,
                     item.get("code") or item.get("name"),

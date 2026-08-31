@@ -18,7 +18,7 @@ def stable_id(kind: str, *parts: Any) -> str:
     """Return a deterministic opaque identifier for an ontology object."""
 
     natural_key = "|".join(normalize_key(part) for part in parts)
-    digest = hashlib.sha1(f"{kind}|{natural_key}".encode("utf-8")).hexdigest()[:20]
+    digest = hashlib.sha1(f"{kind}|{natural_key}".encode()).hexdigest()[:20]
     return f"bmstu:{kind}:{digest}"
 
 

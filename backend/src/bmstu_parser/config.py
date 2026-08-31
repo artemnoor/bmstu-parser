@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-
 SITE_BASE = "https://mirror.bmstu.ru"
 API_BASE = "https://api.mirror.bmstu.ru"
 DEGREE = "baccalaureate-and-specialty"

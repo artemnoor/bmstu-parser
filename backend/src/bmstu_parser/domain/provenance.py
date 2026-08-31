@@ -3,7 +3,6 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-
 SOURCE_FIELDS = (
     "source_page",
     "list_api",
@@ -39,12 +38,15 @@ def _observations(value: Mapping[str, Any]) -> list[dict[str, Any]]:
         if not isinstance(candidate, Mapping):
             continue
         item = _observation(candidate)
-        if any(item.get(field) for field in SOURCE_FIELDS) or any(
-            key not in {"sources", *SOURCE_FIELDS} and value not in (None, "", [], {})
-            for key, value in item.items()
-        ):
-            if item not in result:
-                result.append(item)
+        if (
+            any(item.get(field) for field in SOURCE_FIELDS)
+            or any(
+                key not in {"sources", *SOURCE_FIELDS}
+                and value not in (None, "", [], {})
+                for key, value in item.items()
+            )
+        ) and item not in result:
+            result.append(item)
     return result
 
 

@@ -6,7 +6,7 @@ import shutil
 import subprocess
 import tempfile
 import xml.etree.ElementTree as ET
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -17,7 +17,7 @@ from .readers import DocumentReader, get_reader_backend
 
 
 def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _local_name(tag: str) -> str:
@@ -208,9 +208,8 @@ def _extract_pdf(
                         break
                     try:
                         detected = page.find_tables(table_settings=settings)
-                    except (
-                        Exception
-                    ) as exc:  # pragma: no cover - depends on malformed PDFs
+                    # pdfplumber exposes backend-specific exceptions for malformed tables.
+                    except Exception as exc:  # noqa: BLE001
                         warnings.append(
                             f"Страница {page_number}: ошибка поиска таблиц: {exc}"
                         )
@@ -447,9 +446,8 @@ def extract_document(
             len(row) for table in tables for row in table.get("rows", [])
         )
         base["document"]["warnings"] = warnings
-    except (
-        Exception
-    ) as exc:  # preserve an auditable failed document rather than dropping it
+    # Preserve an auditable failed document rather than dropping it.
+    except Exception as exc:  # noqa: BLE001
         base["document"]["status"] = "error"
         base["document"]["errors"] = [f"{type(exc).__name__}: {exc}"]
     return base
