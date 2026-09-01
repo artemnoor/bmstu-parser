@@ -69,6 +69,7 @@ class SourceCurriculum(SourceRecord):
 class SourceDiscipline(SourceRecord):
     name: str = ""
     code: str = ""
+    curriculum_key: str = ""
     total_hours: int | float | None = None
     credits: int | float | None = None
     components: dict[str, int | float | None] = field(default_factory=dict)
@@ -91,6 +92,7 @@ class SourceSemester(SourceRecord):
 @dataclass(frozen=True, slots=True)
 class SourceSemesterLoad(SourceRecord):
     discipline_key: str = ""
+    curriculum_key: str = ""
     semester: int = 0
     hours: int | float | None = None
     credits: int | float | None = None

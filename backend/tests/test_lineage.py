@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from bmstu_parser.runtime.lineage import PipelineRun
+from university_data.runtime.lineage import PipelineRun
 
 
 class LineageTests(unittest.TestCase):

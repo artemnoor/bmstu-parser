@@ -4,12 +4,20 @@ import csv
 import json
 from pathlib import Path
 
-from bmstu_parser.runtime.atomic import atomic_text_writer, atomic_write_json
-from bmstu_parser.runtime.checkpoints import CheckpointStore, file_fingerprint
-from bmstu_parser.study_plans.pipeline import StudyPlanExtractionPipeline
-from bmstu_parser.study_plans.readers import DoclingDocumentReader
-from bmstu_parser.study_plans.resolution import resolve_disciplines
-from bmstu_parser.study_plans.rules import validate_curriculum_contract
+from university_data.runtime.atomic import atomic_text_writer, atomic_write_json
+from university_data.runtime.checkpoints import CheckpointStore, file_fingerprint
+from university_data.universities.bmstu.adapter.study_plans.pipeline import (
+    StudyPlanExtractionPipeline,
+)
+from university_data.universities.bmstu.adapter.study_plans.readers import (
+    DoclingDocumentReader,
+)
+from university_data.universities.bmstu.adapter.study_plans.resolution import (
+    resolve_disciplines,
+)
+from university_data.universities.bmstu.adapter.study_plans.rules import (
+    validate_curriculum_contract,
+)
 
 
 def test_atomic_writer_preserves_previous_artifact_on_failure(tmp_path: Path) -> None:

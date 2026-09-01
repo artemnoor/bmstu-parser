@@ -34,8 +34,6 @@ dev = [
 [project.scripts]
 university-data = "university_data.cli:main"
 university-api = "university_data.api.cli:main"
-bmstu-parser = "bmstu_parser.cli:main"
-bmstu-api = "bmstu_parser.api.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -46,6 +44,7 @@ university_data = [
     "universities/fake/config.yaml",
     "universities/fake/fixtures/*.json",
     "universities/fake/fixtures/*.xlsx",
+    "universities/hse/config.yaml",
 ]
 
 [tool.pytest.ini_options]
@@ -59,17 +58,7 @@ source = [
     "university_data.normalization",
     "university_data.resolvers",
     "university_data.sources.xlsx",
-    "bmstu_parser.domain",
-    "bmstu_parser.transform",
-    "bmstu_parser.study_plans.semantic_curriculum",
-    "bmstu_parser.study_plans.semantic_geometry",
-    "bmstu_parser.study_plans.semantic_io",
-    "bmstu_parser.study_plans.semantic_ontology",
-    "bmstu_parser.study_plans.semantic_quality",
-    "bmstu_parser.study_plans.semantic_reconciliation",
-    "bmstu_parser.study_plans.semantic_schema",
-    "bmstu_parser.study_plans.semantic_shared",
-    "bmstu_parser.study_plans.semantics",
+    "university_data.universities.bmstu.adapter.study_plans",
 ]
 
 [tool.mypy]

@@ -1,42 +1,36 @@
 import unittest
 from pathlib import Path
 
-from bmstu_parser.ingestion.mirror_api import DetailFetch
-from bmstu_parser.quality.checks import validate_dataset
-from bmstu_parser.study_plans.quality import validate_extractions
-from bmstu_parser.transform.normalize import Normalizer
-from bmstu_parser.transform.ontology import OntologyBuilder
+from university_data.domain.ids import global_stable_id
+from university_data.quality import build_quality_report
+from university_data.universities.bmstu.adapter.study_plans.quality import (
+    validate_extractions,
+)
 
 
 class QualityTests(unittest.TestCase):
-    def test_quality_gate_reports_missing_detail(self) -> None:
-        summary = {"slug": "broken", "name": "Broken", "code": "00.00.00"}
-        detail = DetailFetch(summary, None, "timeout", "now")
-        major = Normalizer().normalize(detail)
-        ontology = OntologyBuilder().build([major])
-        quality = validate_dataset([summary], {"count": 1}, [detail], [major], ontology)
-        self.assertFalse(quality["verification"]["passed"])
-        self.assertEqual(quality["detail_errors"][0]["slug"], "broken")
+    def test_quality_gate_reports_broken_link(self) -> None:
+        university_id = global_stable_id("fake", "university", "fake")
+        records = {
+            "universities": [{"id": university_id, "university_id": "fake"}],
+            "programs": [
+                {
+                    "id": "program-1",
+                    "university_id": "fake",
+                    "department_id": "missing",
+                }
+            ],
+        }
+        from university_data.ontology import build_ontology
 
-    def test_quality_gate_rejects_duplicate_detail_instead_of_matching_only_length(
-        self,
-    ) -> None:
-        summaries = [
-            {"slug": "first", "name": "First", "code": "01.00.00"},
-            {"slug": "second", "name": "Second", "code": "02.00.00"},
-        ]
-        details = [
-            DetailFetch(summaries[0], {}, None, "now"),
-            DetailFetch(summaries[0], {}, None, "now"),
-        ]
-        majors = [Normalizer().normalize(item) for item in details]
-        quality = validate_dataset(
-            summaries, {"count": 2}, details, majors, {"objects": {}, "links": []}
+        quality = build_quality_report(
+            "fake",
+            {"programs": True},
+            records,
+            ontology=build_ontology("fake", records),
         )
-
-        self.assertFalse(quality["verification"]["detail_for_every_list_item"])
-        self.assertIn("second", quality["missing_detail_items"])
-        self.assertIn("first", quality["duplicate_detail_items"])
+        self.assertFalse(quality["verification"]["passed"])
+        self.assertEqual(quality["checks"]["orphan_links"], 1)
 
     def test_extraction_quality_rejects_declared_count_mismatch(self) -> None:
         reference = {

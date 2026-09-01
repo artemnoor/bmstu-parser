@@ -266,7 +266,7 @@ def _compact_existing_dataset(result_dir: Path) -> dict[str, Any]:
         {"schema_version": "2.0", **ontology_builder.build([])},
     )
     # A legacy table compaction must not silently erase the semantic Ontology
-    # layer created by extract-study-plan-semantics. Rebuild it from the
+    # layer created by university-data extract_semantics. Rebuild it from the
     # compacted source datasets when that layer already exists.
     if (data_dir / "study_plan_disciplines.jsonl").exists() and (
         data_dir / "study_plan_semester_load.csv"

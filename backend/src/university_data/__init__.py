@@ -1,8 +1,7 @@
 """University Data Platform public package.
 
 The package contains the university-neutral contracts and the registered
-source adapters.  The historical ``bmstu_parser`` package remains available
-as a compatibility facade while downstream consumers migrate.
+source adapters.
 """
 
 __version__ = "3.0.0"

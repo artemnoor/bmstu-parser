@@ -95,6 +95,7 @@ class Discipline(_Canonical):
     university_id: str
     name: str
     code: str = ""
+    curriculum_id: str = ""
     total_hours: int | float | None = None
     credits: int | float | None = None
     semester: int | str | None = None
@@ -132,6 +133,7 @@ class SemesterLoad(_Canonical):
     university_id: str
     discipline_id: str
     semester_id: str
+    curriculum_id: str = ""
     hours: int | float | None = None
     credits: int | float | None = None
     field_meta: dict[str, FieldMeta] = field(default_factory=dict)

@@ -4,15 +4,19 @@ import csv
 import json
 from pathlib import Path
 
-from bmstu_parser.api.job_store import SqliteJobStore
-from bmstu_parser.api.repository import DatasetRepository
-from bmstu_parser.domain.ids import deterministic_record_ids, legacy_stable_id
-from bmstu_parser.domain.models import SourceProvenance
-from bmstu_parser.domain.provenance import merge_provenance
-from bmstu_parser.ingestion.mirror_api import DetailFetch
-from bmstu_parser.study_plans.semantics import enrich_existing_dataset
-from bmstu_parser.transform.normalize import Normalizer
-from bmstu_parser.transform.ontology import OntologyBuilder
+from university_data.api.job_store import SqliteJobStore
+from university_data.domain.ids import deterministic_record_ids
+from university_data.universities.bmstu.adapter.domain.ids import (
+    stable_id as legacy_stable_id,
+)
+from university_data.universities.bmstu.adapter.domain.provenance import (
+    merge_provenance,
+)
+from university_data.universities.bmstu.adapter.ingestion.mirror_api import DetailFetch
+from university_data.universities.bmstu.adapter.study_plans.semantics import (
+    enrich_existing_dataset,
+)
+from university_data.universities.bmstu.adapter.transform.normalize import Normalizer
 
 
 def _major(
@@ -78,6 +82,7 @@ def test_business_id_collisions_use_payload_variants_and_duplicate_ordinals() ->
     ]
     identifiers = deterministic_record_ids(
         "example",
+        "entity",
         records,
         key=lambda item: (item["code"],),
         legacy_key=lambda item, index: (item["code"], index),
@@ -102,25 +107,6 @@ def test_legacy_alias_keeps_original_source_array_position() -> None:
     )
 
 
-def test_ontology_merge_keeps_all_provenance_observations() -> None:
-    builder = OntologyBuilder()
-    first = SourceProvenance(source_key="source-a", fetched_at_utc="2026-01-01")
-    second = SourceProvenance(source_key="source-b", fetched_at_utc="2026-01-02")
-    builder.add_object(
-        "faculty", "faculty", {"name": "Faculty"}, first, object_id="faculty-1"
-    )
-    builder.add_object(
-        "faculty", "faculty", {"name": "Faculty"}, second, object_id="faculty-1"
-    )
-
-    provenance = builder.build([])["objects"]["faculty"][0]["provenance"]
-    assert len(provenance["sources"]) == 2
-    assert {source["source_key"] for source in provenance["sources"]} == {
-        "source-a",
-        "source-b",
-    }
-
-
 def test_semantic_provenance_merge_keeps_non_domain_source_fields() -> None:
     merged = merge_provenance(
         {"source_url": "https://a.example", "raw_dataset": "a.jsonl"},
@@ -131,83 +117,6 @@ def test_semantic_provenance_merge_keeps_non_domain_source_fields() -> None:
         "a.jsonl",
         "b.jsonl",
     }
-
-
-def test_duckdb_repository_resolves_legacy_id_alias(tmp_path: Path) -> None:
-    (tmp_path / "educational_programs.csv").write_text(
-        "id,legacy_id,name\nnew-program,old-program,Program\n",
-        encoding="utf-8",
-    )
-    (tmp_path / "id_aliases.json").write_text(
-        json.dumps(
-            {
-                "schema_version": "1.0",
-                "aliases": [
-                    {"legacy_id": "old-program", "canonical_id": "new-program"}
-                ],
-            }
-        ),
-        encoding="utf-8",
-    )
-    repository = DatasetRepository(tmp_path, engine="duckdb")
-    assert (
-        repository.first("educational_programs", "id", "old-program")["id"]
-        == "new-program"
-    )
-    assert (
-        repository.page(
-            "educational_programs", offset=0, limit=10, filters={"id": "old-program"}
-        )["total"]
-        == 1
-    )
-    (tmp_path / "id_aliases.json").write_text(
-        json.dumps(
-            {
-                "schema_version": "1.0",
-                "aliases": [
-                    {
-                        "legacy_id": "another-old-program",
-                        "canonical_id": "new-program",
-                    }
-                ],
-            }
-        ),
-        encoding="utf-8",
-    )
-    assert repository.resolve_alias("another-old-program") == "new-program"
-
-    legacy_dir = tmp_path / "legacy"
-    legacy_dir.mkdir()
-    (legacy_dir / "educational_programs.csv").write_text(
-        "id,name\nold-program,Program\n", encoding="utf-8"
-    )
-    (legacy_dir / "id_aliases.json").write_text(
-        json.dumps(
-            {
-                "schema_version": "1.0",
-                "aliases": [
-                    {"legacy_id": "old-program", "canonical_id": "new-program"}
-                ],
-            }
-        ),
-        encoding="utf-8",
-    )
-    legacy_repository = DatasetRepository(legacy_dir, engine="duckdb")
-    assert (
-        legacy_repository.first("educational_programs", "id", "old-program")["id"]
-        == "old-program"
-    )
-
-    legacy_only_dir = tmp_path / "legacy-only"
-    legacy_only_dir.mkdir()
-    (legacy_only_dir / "educational_programs.csv").write_text(
-        "id,legacy_id,name\nnew-program,old-program,Program\n", encoding="utf-8"
-    )
-    legacy_only_repository = DatasetRepository(legacy_only_dir, engine="duckdb")
-    assert (
-        legacy_only_repository.first("educational_programs", "id", "old-program")["id"]
-        == "new-program"
-    )
 
 
 def test_sqlite_store_recovers_interrupted_operation(tmp_path: Path) -> None:

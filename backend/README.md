@@ -1,8 +1,8 @@
 # University Data Platform backend
 
-Backend содержит публичный пакет `university_data` и временный пакет
-совместимости `bmstu_parser`. BMSTU остаётся первым адаптером, FakeUniversity
-проверяет, что core не зависит от формата одного источника.
+Backend содержит публичный пакет `university_data`. BMSTU остаётся первым
+адаптером, FakeUniversity проверяет контракты на fixture-данных, а HSE
+проверяет подключение второго реального источника.
 
 ## Install and run
 

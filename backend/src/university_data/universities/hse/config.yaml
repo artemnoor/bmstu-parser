@@ -1,0 +1,15 @@
+university_id: hse
+display_name: Национальный исследовательский университет «Высшая школа экономики»
+capabilities:
+  programs: true
+  curricula: false
+  faculties: false
+  departments: false
+  admission: false
+  tuition: false
+  teachers: false
+resolvers:
+  total_hours: []
+settings:
+  source_page: https://www.hse.ru/n/education/bachelor
+  source_format: official_html_catalog

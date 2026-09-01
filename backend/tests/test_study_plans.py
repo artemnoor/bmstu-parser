@@ -1,9 +1,15 @@
 import unittest
 from pathlib import Path
 
-from bmstu_parser.study_plans.quality import validate_extractions
-from bmstu_parser.study_plans.reader import curriculum_row_record
-from bmstu_parser.study_plans.semantics import _semantic_row
+from university_data.universities.bmstu.adapter.study_plans.quality import (
+    validate_extractions,
+)
+from university_data.universities.bmstu.adapter.study_plans.reader import (
+    curriculum_row_record,
+)
+from university_data.universities.bmstu.adapter.study_plans.semantics import (
+    _semantic_row,
+)
 
 
 class StudyPlanTests(unittest.TestCase):

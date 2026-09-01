@@ -58,12 +58,20 @@ class FakeTeachersProvider:
                 source_key=str(item["id"]),
                 name=str(item.get("name", "")),
                 position=str(item.get("position", "")),
-                department_key=str(item.get("department", "")),
+                # Departments are intentionally unsupported by this plugin;
+                # retain the source label in extensions instead of emitting a
+                # canonical link to a non-existent target.
+                department_key="",
                 email=str(item.get("email", "")),
                 raw=item,
-                extensions={"teacher_rating": item["teacher_rating"]}
-                if "teacher_rating" in item
-                else {},
+                extensions={
+                    key: value
+                    for key, value in {
+                        "teacher_rating": item.get("teacher_rating"),
+                        "source_department": item.get("department", ""),
+                    }.items()
+                    if value not in (None, "")
+                },
                 provenance=_provenance(str(item["id"]), "fixtures/teachers.json"),
             )
             for item in payload

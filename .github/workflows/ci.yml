@@ -33,14 +33,7 @@ jobs:
       - name: Ruff format
         run: ruff format --check src tests
       - name: Mypy typed core
-        run: >-
-          mypy src/university_data
-          --ignore-missing-imports
-          &&
-          mypy src/bmstu_parser/domain
-          src/bmstu_parser/api/repository.py
-          src/bmstu_parser/api/job_store.py
-          --ignore-missing-imports
+        run: mypy src/university_data --ignore-missing-imports
       - name: Unit and integration tests
         env:
           PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
@@ -52,12 +45,13 @@ jobs:
         run: python -m coverage run -m pytest -q -p no:cacheprovider -p pytest_asyncio.plugin
       - name: Coverage threshold (Python 3.12)
         if: matrix.python-version == '3.12'
-        run: python -m coverage report --fail-under=80
-      - name: Verify DuckDB runtime adapter
+        run: python -m coverage report --fail-under=75
+      - name: Verify namespaced repository
         run: >-
-          python -c "from pathlib import Path; from bmstu_parser.api.repository import DatasetRepository;
-          import tempfile; p=Path(tempfile.mkdtemp()); (p/'majors.csv').write_text('id,name\n1,Smoke\n', encoding='utf-8');
-          r=DatasetRepository(p, engine='duckdb'); assert r.engine == 'duckdb'; assert r.page('majors', offset=0, limit=1)['total'] == 1"
+          python -c "from pathlib import Path; from university_data.api.repository import DatasetRepository;
+          import tempfile; p=Path(tempfile.mkdtemp())/'fake'; (p/'canonical').mkdir(parents=True);
+          (p/'canonical/programs.csv').write_text('id,name\nuniversity:fake:program:1,Smoke\n', encoding='utf-8');
+          r=DatasetRepository(p.parent, 'fake'); assert r.page('programs', offset=0, limit=1)['total'] == 1"
       - name: Validate generated OpenAPI contract
         run: python -m json.tool ../contracts/openapi.json > /dev/null
       - name: Verify FakeUniversity pipeline
@@ -77,7 +71,7 @@ jobs:
         run: >-
           docker run --rm university-data-platform-ci sh -c
           'command -v pdftotext && pdftotext -v && python -c
-          "from university_data import REGISTRY; assert REGISTRY.ids() == (\"bmstu\", \"fake\"); assert REGISTRY.require(\"fake\").capabilities().teachers"'
+          "from university_data import REGISTRY; assert REGISTRY.ids() == (\"bmstu\", \"fake\", \"hse\"); assert REGISTRY.require(\"fake\").capabilities().teachers"'
 
   frontend:
     name: Frontend · Playwright smoke

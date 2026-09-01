@@ -82,6 +82,18 @@ DATASET_SPECS = (
         "Нагрузка по семестрам",
     ),
     DatasetSpec(
+        "semantic_disciplines",
+        Path("semantic/study_plan_disciplines.jsonl"),
+        "jsonl",
+        "Семантические дисциплины, извлечённые из учебных планов",
+    ),
+    DatasetSpec(
+        "semantic_semester_loads",
+        Path("semantic/study_plan_semester_loads.jsonl"),
+        "jsonl",
+        "Семантическая семестровая нагрузка",
+    ),
+    DatasetSpec(
         "majors", Path("majors.csv"), "csv", "Совместимый projection направлений"
     ),
     DatasetSpec("departments", Path("departments.csv"), "csv", "Кафедры"),

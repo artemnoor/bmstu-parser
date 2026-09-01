@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+import shutil
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -17,12 +18,17 @@ from ...core.source_models import (
     SourceProgram,
     SourceTuition,
 )
+from ...domain.ids import deterministic_source_keys
 from ...domain.provenance import SourceProvenance
 from ...runtime.atomic import atomic_text_writer, atomic_write_json
 from ...sources.http import ApiClient
 from .adapter.config import LIST_ENDPOINT, SOURCE_PAGE
+from .adapter.domain.models import PlanFile, StudyPlan
 from .adapter.ingestion.mirror_api import DetailFetch, MirrorApi
 from .adapter.ingestion.yandex import StudyPlanResolver
+from .adapter.study_plans.pipeline import StudyPlanExtractionPipeline
+from .adapter.study_plans.semantic_source import source_rows_from_semantic
+from .adapter.study_plans.semantics import enrich_existing_dataset
 from .adapter.transform.normalize import Normalizer
 from .adapter.transform.text import safe_filename
 
@@ -48,6 +54,27 @@ def _key(value: Any, *fallbacks: Any) -> str:
         if text:
             return text
     return "unknown"
+
+
+def _program_source_keys(major: Any) -> dict[str, str]:
+    """Build reorder-stable keys shared by program and curriculum providers."""
+
+    programs = list(major.educational_programs)
+    direction_key = _key(major.slug, major.code, major.name)
+    department_keys = {
+        department.id: _key(department.slug, department.code, department.name)
+        for department in major.departments
+    }
+    keys = deterministic_source_keys(
+        programs,
+        key=lambda program: (
+            direction_key,
+            program.code,
+            program.name,
+            department_keys.get(program.department_id, program.department_id),
+        ),
+    )
+    return dict(zip((program.id for program in programs), keys, strict=True))
 
 
 class BmstuSourceSnapshot:
@@ -83,6 +110,8 @@ class BmstuSourceSnapshot:
             self.details = api.fetch_details(self.summaries)
         self._write_raw_snapshot()
         self.majors = [Normalizer().normalize(item) for item in self.details]
+        if self.replay_dir is not None:
+            self._restore_replay_plan_manifest()
         if bool(self.options.resolve_plans):
             client = ApiClient(
                 timeout=float(self.options.timeout),
@@ -97,6 +126,75 @@ class BmstuSourceSnapshot:
         self._write_plan_manifest()
         self._loaded = True
         return self.majors
+
+    def _restore_replay_plan_manifest(self) -> None:
+        """Attach existing downloaded documents without network resolution."""
+
+        if self.replay_dir is not None:
+            source_plans = self.replay_dir / "study_plans"
+            target_plans = self.output_dir / "study_plans"
+            if (
+                source_plans.is_dir()
+                and source_plans.resolve() != target_plans.resolve()
+            ):
+                shutil.copytree(source_plans, target_plans, dirs_exist_ok=True)
+        manifest = self.replay_dir / "study_plan_files.csv" if self.replay_dir else None
+        if manifest is None or not manifest.is_file():
+            return
+        rows: list[dict[str, str]] = []
+        with manifest.open(encoding="utf-8-sig", newline="") as stream:
+            rows.extend(dict(row) for row in csv.DictReader(stream))
+        by_program: dict[str, list[dict[str, str]]] = {}
+        for row in rows:
+            key = row.get("program_id", "")
+            if key:
+                by_program.setdefault(key, []).append(row)
+        for major in self.majors:
+            for program in major.educational_programs:
+                program_rows = by_program.get(program.id, [])
+                if not program_rows:
+                    program_rows = [
+                        row
+                        for row in rows
+                        if row.get("program_code") == program.code
+                        and row.get("program_name") == program.name
+                    ]
+                if not program_rows:
+                    continue
+                files = [
+                    PlanFile(
+                        id=row.get("id", ""),
+                        name=Path(row.get("local_path", "")).name,
+                        path=row.get("local_path", ""),
+                        size=(
+                            int(row["size"]) if row.get("size", "").isdigit() else None
+                        ),
+                        mime_type=row.get("mime_type", ""),
+                        md5="",
+                        sha256=row.get("sha256", ""),
+                        source_url=row.get("source_url", ""),
+                        resolved_url=row.get("resolved_url", ""),
+                        download_url=row.get("resolved_url", ""),
+                        local_path=row.get("local_path", ""),
+                        downloaded=True,
+                        downloaded_size=(
+                            int(row["size"]) if row.get("size", "").isdigit() else None
+                        ),
+                    )
+                    for row in program_rows
+                    if row.get("local_path")
+                ]
+                if files:
+                    first = program_rows[0]
+                    program.study_plan = StudyPlan(
+                        url=first.get("plan_url", program.study_plan_url),
+                        resolved_url=first.get("resolved_url", ""),
+                        status=first.get("plan_status", "resolved"),
+                        files=files,
+                    )
+
+    def plan_path(self, local_path: str) -> Path:
+        return self.output_dir / Path(local_path.replace("\\", "/"))
 
     def _load_replay(self, source_dir: Path) -> None:
         payload = json.loads(
@@ -213,10 +311,11 @@ class BmstuProgramsProvider(_BmstuProvider):
                 department.id: _key(department.slug, department.code, department.name)
                 for department in major.departments
             }
+            program_keys = _program_source_keys(major)
             for program in major.educational_programs:
                 result.append(
                     SourceProgram(
-                        source_key=_key(program.code, program.name, program.id),
+                        source_key=program_keys[program.id],
                         name=program.name,
                         code=program.code,
                         study_direction_key=direction_key,
@@ -320,7 +419,10 @@ class BmstuTuitionProvider(_BmstuProvider):
             for option in major.tuition:
                 result.append(
                     SourceTuition(
-                        source_key=f"{direction_key}:{option.study_form}:{option.term}",
+                        source_key=(
+                            f"{direction_key}:{option.study_form}:"
+                            f"{option.term}:{option.id}"
+                        ),
                         study_form=option.study_form,
                         value=str(option.value) if option.value is not None else None,
                         currency=option.currency,
@@ -336,59 +438,221 @@ class BmstuTuitionProvider(_BmstuProvider):
 class BmstuCurriculaProvider(_BmstuProvider):
     capability = "curricula"
 
-    def fetch(self) -> list[SourceCurriculum]:
-        result: list[SourceCurriculum] = []
-        for major in self.majors:
-            for program in major.educational_programs:
-                plan = program.study_plan
-                first_file = plan.files[0] if plan.files else None
-                result.append(
-                    SourceCurriculum(
-                        source_key=f"{_key(program.code, program.name, program.id)}:curriculum",
-                        name=program.name,
-                        program_key=_key(program.code, program.name, program.id),
-                        path=(
-                            Path(first_file.local_path)
-                            if first_file and first_file.local_path
-                            else None
-                        ),
-                        raw={
-                            "program_id": program.id,
-                            "plan_status": plan.status,
-                            "plan_url": plan.url,
-                            "files": [asdict(item) for item in plan.files],
-                        },
-                        provenance=_provenance(program),
-                        extensions={
-                            "study_plan_status": plan.status,
-                            "study_plan_file_count": len(plan.files),
-                        },
-                    )
+    @staticmethod
+    def _read_jsonl(path: Path) -> list[dict[str, Any]]:
+        if not path.is_file():
+            return []
+        values: list[dict[str, Any]] = []
+        with path.open(encoding="utf-8") as stream:
+            for line in stream:
+                try:
+                    value = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(value, dict):
+                    values.append(value)
+        return values
+
+    @staticmethod
+    def _number(value: Any) -> int | float | None:
+        if value is None or value == "":
+            return None
+        if isinstance(value, bool):
+            return None
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return None
+        return int(number) if number.is_integer() else number
+
+    @classmethod
+    def _read_semantic_loads(cls, path: Path) -> list[dict[str, Any]]:
+        if not path.is_file():
+            return []
+        numeric_fields = {
+            "semester",
+            "weeks",
+            "credits",
+            "hours",
+            "audited_hours",
+            "independent_or_other_hours",
+        }
+        json_fields = {
+            "control_tokens",
+            "control_kinds",
+            "raw",
+            "raw_bands",
+            "normalization_notes",
+            "source_cell_ids",
+            "source_word_ids",
+        }
+        loads: list[dict[str, Any]] = []
+        with path.open(encoding="utf-8-sig", newline="") as stream:
+            for source in csv.DictReader(stream):
+                load: dict[str, Any] = dict(source)
+                for field in numeric_fields:
+                    load[field] = cls._number(load.get(field))
+                for field in json_fields:
+                    value = load.get(field, "")
+                    if not value:
+                        load[field] = [] if field.endswith("s") else {}
+                        continue
+                    try:
+                        load[field] = json.loads(value)
+                    except json.JSONDecodeError:
+                        load[field] = [] if field.endswith("s") else {}
+                loads.append(load)
+        return loads
+
+    def _semantic_dataset(
+        self,
+    ) -> tuple[
+        dict[str, list[dict[str, Any]]],
+        dict[str, Any],
+        dict[str, Any],
+    ]:
+        """Run the balanced document/semantic stages once per source snapshot."""
+
+        result_dir = self.snapshot.output_dir
+        manifest = result_dir / "study_plan_files.csv"
+        if not manifest.is_file():
+            return (
+                {},
+                {"verification": {"passed": True}},
+                {"verification": {"passed": True}},
+            )
+        with manifest.open(encoding="utf-8-sig", newline="") as stream:
+            if not any(row.get("local_path") for row in csv.DictReader(stream)):
+                return (
+                    {},
+                    {"verification": {"passed": True}},
+                    {"verification": {"passed": True}},
                 )
+        extraction_report = StudyPlanExtractionPipeline(
+            result_dir,
+            workers=int(self.snapshot.options.workers),
+            reader_backend=self.snapshot.options.reader_backend,
+            resume=True,
+        ).run()
+        semantic_report = enrich_existing_dataset(result_dir)
+        disciplines = self._read_jsonl(
+            result_dir / "study_plan_data/study_plan_disciplines.jsonl"
+        )
+        loads = self._read_semantic_loads(
+            result_dir / "study_plan_data/study_plan_semester_load.csv"
+        )
+        loads_by_discipline: dict[str, list[dict[str, Any]]] = {}
+        for load in loads:
+            discipline_id = str(load.get("discipline_id", ""))
+            if discipline_id:
+                loads_by_discipline.setdefault(discipline_id, []).append(load)
+        rows_by_document: dict[str, list[dict[str, Any]]] = {}
+        for discipline in disciplines:
+            document_id = str(discipline.get("document_id", ""))
+            if not document_id:
+                continue
+            discipline_id = str(discipline.get("id", ""))
+            rows_by_document.setdefault(document_id, []).extend(
+                source_rows_from_semantic(
+                    {
+                        "disciplines": [discipline],
+                        "semester_loads": loads_by_discipline.get(discipline_id, []),
+                    }
+                )
+            )
+        return rows_by_document, semantic_report, extraction_report
+
+    def fetch(self) -> list[SourceCurriculum]:
+        programs: list[tuple[Any, str]] = []
+        for major in self.majors:
+            program_keys = _program_source_keys(major)
+            for program in major.educational_programs:
+                program_key = program_keys[program.id]
+                programs.append((program, program_key))
+        rows_by_document, semantic_report, extraction_report = self._semantic_dataset()
+        extraction_ok = bool(extraction_report.get("verification", {}).get("passed"))
+        semantic_ok = bool(semantic_report.get("verification", {}).get("passed"))
+        stage_warnings: list[str] = []
+        if not extraction_ok:
+            stage_warnings.append("study-plan extraction quality gate failed")
+        if not semantic_ok:
+            stage_warnings.append("study-plan semantic quality gate failed")
+
+        result: list[SourceCurriculum] = []
+        for program, program_key in programs:
+            plan = program.study_plan
+            parsed_rows: list[dict[str, Any]] = []
+            semantic_reports: list[dict[str, Any]] = []
+            semantic_documents: list[str] = []
+            parse_warnings = list(stage_warnings)
+            for file_info in plan.files:
+                if not file_info.local_path:
+                    continue
+                parsed_rows.extend(rows_by_document.get(file_info.id, []))
+                if file_info.id in rows_by_document:
+                    semantic_documents.append(file_info.id)
+            if plan.files:
+                semantic_reports.append(semantic_report)
+            result.append(
+                SourceCurriculum(
+                    source_key=f"{program_key}:curriculum",
+                    name=program.name,
+                    program_key=program_key,
+                    path=(
+                        self.snapshot.plan_path(plan.files[0].local_path)
+                        if plan.files and plan.files[0].local_path
+                        else None
+                    ),
+                    rows=tuple(parsed_rows),
+                    raw={
+                        "program_id": program.id,
+                        "plan_status": plan.status,
+                        "plan_url": plan.url,
+                        "files": [asdict(item) for item in plan.files],
+                        "semantic_reports": semantic_reports,
+                        "semantic_warnings": parse_warnings,
+                    },
+                    provenance=_provenance(program),
+                    extensions={
+                        "study_plan_status": plan.status,
+                        "study_plan_file_count": len(plan.files),
+                        "semantic_documents": semantic_documents,
+                        "semantic_reports": semantic_reports,
+                        "semantic_warnings": parse_warnings,
+                        "extraction_report": extraction_report,
+                    },
+                )
+            )
         return result
 
 
 class BmstuOperations:
     def execute(self, request: Any, result_dir: Path) -> dict[str, Any]:
-        operation = request.operation
-        if operation == "extract_study_plans":
-            from .adapter.study_plans.pipeline import StudyPlanExtractionPipeline
+        if request.operation not in {
+            "extract_study_plans",
+            "extract_semantics",
+            "compact_study_plans",
+        }:
+            raise ValueError(f"Unsupported BMSTU operation: {request.operation}")
+        from ...core.registry import UniversityRegistry
+        from ...pipeline import PipelineOptions, UniversityPipeline
 
-            return StudyPlanExtractionPipeline(
-                result_dir,
+        # Replaying the namespaced raw snapshot makes every PDF operation use
+        # the same Source DTO → canonical → ontology seam as a refresh.
+        plugin = BmstuPlugin(replay_dir=result_dir)
+        return UniversityPipeline(UniversityRegistry((plugin,))).run(
+            "bmstu",
+            PipelineOptions(
+                output_dir=result_dir.parent,
                 workers=request.workers,
+                timeout=request.timeout,
+                delay=request.delay,
+                resolve_plans=False,
+                download_plans=False,
                 reader_backend=request.reader_backend,
-                resume=request.resume,
-            ).run()
-        if operation == "extract_semantics":
-            from .adapter.study_plans.semantics import enrich_existing_dataset
-
-            return enrich_existing_dataset(result_dir)
-        if operation == "compact_study_plans":
-            from .adapter.study_plans.compact import compact_existing_dataset
-
-            return compact_existing_dataset(result_dir)
-        raise ValueError(f"Unsupported BMSTU operation: {operation}")
+                strict=False,
+            ),
+        )
 
 
 class BmstuPlugin:

@@ -214,7 +214,14 @@ def semantic_row(
     if kind != "discipline":
         return row_record, None, []
 
-    discipline_identifier = discipline_id(table["id"], row_index)
+    discipline_identifier = discipline_id(
+        table["id"],
+        code,
+        name,
+        department,
+        current_part_type,
+        state["section_path"],
+    )
     loads: list[dict[str, Any]] = []
     assignments = control_assignments(
         table,

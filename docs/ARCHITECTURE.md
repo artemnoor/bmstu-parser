@@ -102,7 +102,6 @@ Mirror API                         Yandex public resources
 BMSTU/
 ├── backend/
 │   ├── src/university_data/ # core, domain, sources, plugins, API
-│   ├── src/bmstu_parser/    # временный compatibility facade
 │   ├── tests/             # backend unit/integration tests
 │   ├── pyproject.toml     # isolated Python package
 │   └── Dockerfile
@@ -130,12 +129,13 @@ seam оставляет возможность подключить DuckDB/Parqu
 в вторую базу.
 `JobManager` принимает абстракцию `JobStore`; production default — SQLite с
 восстановлением прерванных операций, а `InMemoryJobStore` используется для
-лёгких тестов. `ScrapePipeline` принимает API, normalizer, resolver factory и
-ontology builder через constructor injection.
+лёгких тестов. `UniversityPipeline` принимает registry и опции источника;
+provider seams остаются явными и тестируемыми через constructor injection.
 
 ## Plugin contract и capabilities
 
-Static registry регистрирует `BmstuPlugin` и `FakeUniversityPlugin`. Каждый
+Static registry регистрирует `BmstuPlugin`, `FakeUniversityPlugin` и `HsePlugin`.
+Каждый
 plugin объявляет `UniversityCapabilities`, typed providers и strict YAML
 config. Core обращается к ним через `UniversityPlugin`/`UniversityProviders`;
 проверок `if university == ...` в нейтральном слое нет.
@@ -160,7 +160,7 @@ detail-запросов, общий rate limiter, retry/backoff, checkpoint, ato
 
 ## Отдельный слой учебных планов
 
-Скачанный PDF/DOCX рассматривается как отдельный raw-документ, а не как строка в карточке программы. Команда `extract-study-plans` выполняет следующий поток:
+Скачанный PDF/DOCX рассматривается как отдельный raw-документ, а не как строка в карточке программы. Команда `university-data extract_study_plans` выполняет следующий поток:
 
 ```text
 PDF/DOCX bytes + source metadata
@@ -182,7 +182,7 @@ CSV/JSONL datasets + document/table/row/discipline/entity ontology
 
 Для PDF сохраняются layout-текст, все извлечённые слова с координатами, геометрия каждой ячейки и `word_ids`, из которых она собрана. Полный табличный слой находится в `study_plan_cells.csv`; это dataset-слой. Ontology содержит семантические объекты документа, таблицы и строк, а не копирует миллион ячеек внутрь каждого объекта. Такой раздельный pipeline соответствует принципу Foundry «inputs → transforms → outputs» и отделению dataset от семантического слоя ([официальная документация Palantir](https://www.palantir.com/docs/foundry/data-integration/datasets)).
 
-Команда `extract-study-plan-semantics` поверх этого dataset-слоя распознаёт curriculum-заголовки и строит типизированные записи:
+Команда `university-data extract_semantics` поверх этого dataset-слоя распознаёт curriculum-заголовки и строит типизированные записи:
 
 - предмет: код, название, кафедра, обязательность/выборность и путь разделов;
 - общая трудоёмкость: з.е., общее количество часов, аудиторные часы;

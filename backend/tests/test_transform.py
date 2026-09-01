@@ -1,8 +1,8 @@
 import unittest
 
-from bmstu_parser.ingestion.mirror_api import DetailFetch
-from bmstu_parser.transform.normalize import Normalizer
-from bmstu_parser.transform.text import clean_text
+from university_data.universities.bmstu.adapter.ingestion.mirror_api import DetailFetch
+from university_data.universities.bmstu.adapter.transform.normalize import Normalizer
+from university_data.universities.bmstu.adapter.transform.text import clean_text
 
 
 class TransformTests(unittest.TestCase):

@@ -35,6 +35,7 @@ def execute_operation(
                 delay=request.delay,
                 resolve_plans=request.resolve_plans,
                 download_plans=request.download_plans,
+                reader_backend=request.reader_backend,
                 strict=False,
             ),
         )

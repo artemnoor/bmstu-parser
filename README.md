@@ -8,7 +8,7 @@ source API / public plan links
 Provider DTO → normalization → resolver → canonical domain → ontology → quality gate → namespaced storage
 ```
 
-Публичный namespace — `university_data`; старый `bmstu_parser` оставлен временным compatibility-фасадом для уже работающих интеграций. Общие retry, rate limiter, балансировка workers, checkpoint/resume, atomic writers и lineage сохранены.
+Публичный namespace — `university_data`. Общие retry, rate limiter, балансировка workers, checkpoint/resume, atomic writers и lineage сохранены.
 
 ## Университеты и layout
 
@@ -22,7 +22,8 @@ src/university_data/
 ├── ontology/ quality/ storage/ api/
 └── universities/
     ├── bmstu/        # Mirror API/Yandex-specific adapter
-    └── fake/         # JSON + XLSX + teachers fixture adapter
+    ├── fake/         # JSON + XLSX + teachers fixture adapter
+    └── hse/          # реальный HTML-каталог программ НИУ ВШЭ
 ```
 
 Результаты разделены по scope:
@@ -57,14 +58,14 @@ python -m pytest -q
 Извлечение всех таблиц из уже скачанных планов запускается отдельным блоком:
 
 ```powershell
-python -m bmstu_parser extract-study-plans --result ..\data\result\bmstu --workers 6 --strict --verbose
+university-data extract_study_plans --result ..\data\result\bmstu --workers 6 --strict
 ```
 
 По умолчанию используется проверенный native backend (`pdftotext` + `pdfplumber` + `python-docx`). Для экспериментального структурного reader'а можно установить optional extra и явно включить его:
 
 ```powershell
 python -m pip install -e ".[docling]"
-python -m bmstu_parser extract-study-plans --result ..\data\result\bmstu --reader-backend docling --strict
+university-data extract_study_plans --result ..\data\result\bmstu --reader-backend docling --strict
 ```
 
 Команда сразу создаёт компактные JSONL/CSV-проекции: исходные PDF/DOCX, layout-текст и полный `study_plan_cells.csv` сохраняются, а Ontology и строки содержат ссылки на эти ячейки. Повторный запуск возобновляется по fingerprint исходного файла и backend'а; для полного перерасчёта используйте `--no-resume`. `compact-study-plans` нужен для старых результатов, созданных предыдущей версией writer'а.
@@ -72,7 +73,7 @@ python -m bmstu_parser extract-study-plans --result ..\data\result\bmstu --reade
 Семантическое извлечение предметов и нагрузки запускается отдельным блоком:
 
 ```powershell
-python -m bmstu_parser extract-study-plan-semantics --result ..\data\result\bmstu --strict
+university-data extract_semantics --result ..\data\result\bmstu --strict
 ```
 
 HTTP API для взаимодействия с namespaced datasets и управления операциями запускается так:
@@ -129,7 +130,7 @@ python -m http.server 5173 --directory frontend
 Если нужно только уплотнить уже созданные производные файлы без потери полного набора ячеек:
 
 ```powershell
-python -m bmstu_parser compact-study-plans --result ..\data\result
+university-data compact_study_plans --result ..\data\result\bmstu
 ```
 
 ## Результат

@@ -37,6 +37,13 @@ DATASET_CAPABILITIES = {
     "admission_requirements": "admission",
     "tuition_options": "tuition",
     "teachers": "teachers",
+    "semantic_disciplines": "curricula",
+    "semantic_semester_loads": "curricula",
+}
+OPERATION_CAPABILITIES = {
+    "extract_study_plans": "curricula",
+    "extract_semantics": "curricula",
+    "compact_study_plans": "curricula",
 }
 
 
@@ -414,6 +421,9 @@ def create_app(
         _access: None = Depends(require_write_access),
     ) -> OperationStatus:
         plugin = plugin_for(university_id)
+        operation_capability = OPERATION_CAPABILITIES.get(request.operation)
+        if operation_capability:
+            require_capability(university_id, operation_capability)
         try:
             record = jobs.submit(
                 request.operation,

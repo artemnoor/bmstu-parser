@@ -67,6 +67,7 @@ def build_ontology(
                 ("program_id", "program"),
                 ("department_id", "department"),
                 ("faculty_id", "faculty"),
+                ("curriculum_id", "curriculum"),
                 ("discipline_id", "discipline"),
                 ("semester_id", "semester"),
             ):
@@ -85,10 +86,12 @@ def build_ontology(
                     )
     objects = list(objects_by_id.values())
     known = {item["id"] for item in objects}
+    broken_links = [link for link in links if link["to"] not in known]
     links = [link for link in links if link["to"] in known]
     return {
         "schema_version": "1.0",
         "university_id": university_id,
         "objects": objects,
         "links": links,
+        "broken_links": broken_links,
     }

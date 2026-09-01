@@ -11,7 +11,11 @@ from ..pipeline import PipelineOptions, UniversityPipeline
 from ..runtime.atomic import atomic_write_json
 from ..universities.bmstu.adapter.ingestion.mirror_api import DetailFetch
 from ..universities.bmstu.adapter.transform.normalize import Normalizer
-from ..universities.bmstu.plugin import BmstuPlugin, BmstuSourceSnapshot
+from ..universities.bmstu.plugin import (
+    BmstuPlugin,
+    BmstuSourceSnapshot,
+    _program_source_keys,
+)
 
 
 class BmstuRawReplayProvider:
@@ -58,12 +62,12 @@ def _global_aliases(majors: list[Any]) -> list[dict[str, str]]:
                 "department",
                 global_stable_id("bmstu", "department", key),
             )
-            for program in department.educational_programs:
-                key = program.code or program.name or program.id
-                aliases[program.id] = (
-                    "program",
-                    global_stable_id("bmstu", "program", key),
-                )
+        program_keys = _program_source_keys(major)
+        for program in major.educational_programs:
+            aliases[program.id] = (
+                "program",
+                global_stable_id("bmstu", "program", program_keys[program.id]),
+            )
         for requirement in major.entrance_requirements:
             aliases[requirement.id] = (
                 "admission_requirement",
@@ -127,7 +131,7 @@ def migrate_bmstu(
                 output_dir=target_dir.parent,
                 resolve_plans=False,
                 download_plans=False,
-                strict=False,
+                strict=True,
             ),
         )
 
@@ -145,7 +149,7 @@ def migrate_bmstu(
     # Study-plan documents/checkpoints are also source evidence. They cannot
     # be reconstructed from the API JSON alone, so keep them alongside the
     # rebuilt platform projection when the legacy catalog contains them.
-    for relative in ("study_plan_files.csv", "study_plans", "study_plan_data"):
+    for relative in ("study_plan_files.csv", "study_plans"):
         source = source_dir / relative
         target = target_dir / relative
         if source.is_dir():
@@ -153,6 +157,10 @@ def migrate_bmstu(
         elif source.is_file():
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, target)
+    if not rebuild_derived:
+        source = source_dir / "study_plan_data"
+        if source.is_dir():
+            shutil.copytree(source, target_dir / "study_plan_data", dirs_exist_ok=True)
     if write_aliases:
         atomic_write_json(
             target_dir / "id_aliases.json",

@@ -95,6 +95,11 @@ class ApiClient:
             raise FetchError(f"GET {url}: expected a JSON object")
         return payload
 
+    def get_text(self, url: str, **kwargs: Any) -> str:
+        response = self.request(url, **kwargs)
+        response.encoding = response.encoding or "utf-8"
+        return response.text
+
     def download(self, url: str, destination: Path) -> int:
         self.rate_limiter.wait()
         destination.parent.mkdir(parents=True, exist_ok=True)

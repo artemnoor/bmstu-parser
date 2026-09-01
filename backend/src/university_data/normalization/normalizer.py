@@ -191,6 +191,11 @@ class CanonicalNormalizer:
             university_id=university_id,
             name=source.name,
             code=source.code,
+            curriculum_id=(
+                global_stable_id(university_id, "curriculum", source.curriculum_key)
+                if source.curriculum_key
+                else ""
+            ),
             total_hours=resolution.value,
             credits=source.credits,
             semester=source.semester,
@@ -245,6 +250,11 @@ class CanonicalNormalizer:
             else ""
         )
         semester_id = global_stable_id(university_id, "semester", source.semester)
+        curriculum_id = (
+            global_stable_id(university_id, "curriculum", source.curriculum_key)
+            if source.curriculum_key
+            else ""
+        )
         return SemesterLoad(
             id=global_stable_id(
                 university_id, "semester_load", source.discipline_key, source.semester
@@ -252,6 +262,7 @@ class CanonicalNormalizer:
             university_id=university_id,
             discipline_id=discipline_id,
             semester_id=semester_id,
+            curriculum_id=curriculum_id,
             hours=source.hours,
             credits=source.credits,
             field_meta={
