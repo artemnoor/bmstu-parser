@@ -2,7 +2,9 @@
 
 Backend содержит публичный пакет `university_data`. BMSTU остаётся первым
 адаптером, FakeUniversity проверяет контракты на fixture-данных, а HSE
-проверяет подключение второго реального источника.
+проверяет подключение второго реального источника. Новый вуз добавляется
+пакетом `universities/<id>` с `manifest.yaml`, providers и одной регистрацией.
+Подробный шаблон модуля находится в [`../docs/NEW_UNIVERSITY.md`](../docs/NEW_UNIVERSITY.md).
 
 ## Install and run
 
@@ -24,6 +26,13 @@ Migration существующего результата выполняется
 ```powershell
 university-data migrate bmstu --from ..\data\result --to ..\data\result\bmstu `
   --rebuild-derived --write-aliases
+```
+
+Capability operations вызываются через зарегистрированный модуль:
+
+```powershell
+university-data extract_study_plans --university bmstu --result ..\data\result\bmstu
+university-data extract_semantics --university bmstu --result ..\data\result\bmstu
 ```
 
 ## Quality checks

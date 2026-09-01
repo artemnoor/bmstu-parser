@@ -86,6 +86,7 @@ Mirror API                         Yandex public resources
 
 Перед записью результата проверяются:
 
+- provider DTO type, stable `source_key`, real source locator and raw lineage;
 - совпадение количества элементов списка с `meta.count` API;
 - отсутствие повторяющихся `slug`;
 - наличие успешной карточки для каждого элемента списка;
@@ -134,22 +135,35 @@ provider seams остаются явными и тестируемыми чер�
 
 ## Plugin contract и capabilities
 
-Static registry регистрирует `BmstuPlugin`, `FakeUniversityPlugin` и `HsePlugin`.
-Каждый
-plugin объявляет `UniversityCapabilities`, typed providers и strict YAML
-config. Core обращается к ним через `UniversityPlugin`/`UniversityProviders`;
-проверок `if university == ...` в нейтральном слое нет.
+Static registry регистрирует модули вузов одной строкой на модуль. Новый модуль
+предоставляет `UniversityManifest`, mapping `ProviderSet`, resolver registry и
+operations. `UniversityPlugin`/`UniversityProviders` остаются compatibility
+facade для существующих адаптеров. Manifest хранится в `manifest.yaml` и
+содержит только metadata, fixed core capabilities и настройки источника.
+
+Provider возвращает список typed Source DTO или `ProviderResult` с явными
+`warnings` и `gaps`. Core capability registry связывает ожидаемый DTO,
+canonical datasets, materializer, Ontology type и API names; pipeline, provider
+contract, quality и API используют один и тот же registry.
 
 Capability, которую источник не поддерживает, пропускается без искусственных
 нулей, попадает в quality как `not_supported`, а scoped API возвращает
 `404 capability_unavailable`. Для опубликованного значения `field_meta`
 содержит `status=published`; для вычисленного — `derived` и имя resolver;
-для отсутствующего — `not_published`.
+для отсутствующего — `not_supported`. Partial provider может получить
+`degraded` только через `allow_partial`; исключение источника или нарушение
+provider contract блокирует новый snapshot и сохраняет предыдущий active.
+
+Связь с capability, которой нет у университета, не превращается в synthetic
+Ontology edge: canonical relation остаётся пустой, исходный ключ хранится в
+`extensions.<university_id>.unresolved_references`. Если target capability
+объявлена, но target record отсутствует, quality gate фиксирует blocking orphan.
 
 ID имеют форму `university:<university_id>:<entity_type>:<hash>`. Hash строится
 из устойчивого business key; позиция массива не используется, кроме
 детерминированного разрешения настоящей коллизии. `id_aliases.json` связывает
-исторические BMSTU IDs с новыми.
+исторические IDs с новыми; aliases scoped по типу сущности и поддерживаются
+для любого university plugin.
 
 `UniversityPipeline` не знает URL, JSON-поля или правила BMSTU. BMSTU-specific
 raw parsing, mappings и операции учебных планов находятся в
@@ -198,7 +212,7 @@ CSV/JSONL datasets + document/table/row/discipline/entity ontology
 
 Quality gate учебных планов проверяет каноническое число документов, прикрепление всех ссылок манифеста к документам, количество физических файлов, сигнатуры PDF/DOCX, наличие таблиц у каждого PDF, наличие layout-текста, совпадение размера и SHA-256 с метаданными Yandex, отсутствие неразрешённых файлов и наличие materialized rows/cells. Один публичный документ может быть связан с несколькими программами: он извлекается один раз по детерминированному `document_id`, а все исходные ссылки сохраняются в `source_references` и Ontology links.
 
-API является отдельным consumption/control-слоем поверх этих datasets. Он не дублирует extraction-логику: read endpoints читают allowlist datasets построчно, а operation endpoints запускают существующие pipeline в единственной фоновой очереди. Backend можно вынести в отдельный контейнер, подключив `data/result` как volume.
+API является отдельным consumption/control-слоем поверх этих datasets. Он не дублирует extraction-логику: read endpoints читают allowlist datasets построчно, а operation endpoints запускают существующие pipeline через university-scoped job store: разные вузы могут выполняться параллельно, но для одного вуза одновременно допускается одна изменяющая операция. Backend можно вынести в отдельный контейнер, подключив `data/result` как volume.
 
 Статическая визуализация `frontend/` является отдельным клиентским слоем и не входит в контейнер API. В Docker nginx проксирует `/api` и `/health` во внутренний backend, поэтому браузер работает same-origin; при отдельной раздаче frontend использует явный CORS backend'а. Raw-файлы frontend не получает.
 

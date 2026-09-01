@@ -21,16 +21,25 @@ src/university_data/
 ├── resolvers/        # typed Resolution chains
 ├── ontology/ quality/ storage/ api/
 └── universities/
-    ├── bmstu/        # Mirror API/Yandex-specific adapter
-    ├── fake/         # JSON + XLSX + teachers fixture adapter
-    └── hse/          # реальный HTML-каталог программ НИУ ВШЭ
+    ├── bmstu/        # manifest + Mirror API/Yandex-specific adapter
+    ├── fake/         # manifest + JSON/XLSX/teachers fixture adapter
+    └── hse/          # manifest + providers/ по capabilities
 ```
+
+Новый вуз подключается отдельным `universities/<id>`-модулем и одной строкой
+в composition root. Модуль содержит `manifest.yaml`, `module.py`, providers,
+мэппинги и тесты; `core`, pipeline и API при этом не меняются. Provider может
+вернуть обычный список Source DTO или `ProviderResult` с явными `warnings` и
+`gaps`. Отсутствующая capability объявляется как `not_supported`, а частичная
+публикация допускается только явным `allow_partial` в manifest.
 
 Результаты разделены по scope:
 
 ```text
 data/result/{university_id}/
 ├── raw/ canonical/ semantic/ quality/ pipeline_runs/
+├── current.json              # указатель на последний успешный snapshot
+├── .snapshots/<run_id>/      # опубликованные immutable snapshots
 ├── ontology.json
 └── id_aliases.json
 ```
@@ -58,14 +67,14 @@ python -m pytest -q
 Извлечение всех таблиц из уже скачанных планов запускается отдельным блоком:
 
 ```powershell
-university-data extract_study_plans --result ..\data\result\bmstu --workers 6 --strict
+university-data extract_study_plans --university bmstu --result ..\data\result\bmstu --workers 6 --strict
 ```
 
 По умолчанию используется проверенный native backend (`pdftotext` + `pdfplumber` + `python-docx`). Для экспериментального структурного reader'а можно установить optional extra и явно включить его:
 
 ```powershell
 python -m pip install -e ".[docling]"
-university-data extract_study_plans --result ..\data\result\bmstu --reader-backend docling --strict
+university-data extract_study_plans --university bmstu --result ..\data\result\bmstu --reader-backend docling --strict
 ```
 
 Команда сразу создаёт компактные JSONL/CSV-проекции: исходные PDF/DOCX, layout-текст и полный `study_plan_cells.csv` сохраняются, а Ontology и строки содержат ссылки на эти ячейки. Повторный запуск возобновляется по fingerprint исходного файла и backend'а; для полного перерасчёта используйте `--no-resume`. `compact-study-plans` нужен для старых результатов, созданных предыдущей версией writer'а.
@@ -73,7 +82,7 @@ university-data extract_study_plans --result ..\data\result\bmstu --reader-backe
 Семантическое извлечение предметов и нагрузки запускается отдельным блоком:
 
 ```powershell
-university-data extract_semantics --result ..\data\result\bmstu --strict
+university-data extract_semantics --university bmstu --result ..\data\result\bmstu --strict
 ```
 
 HTTP API для взаимодействия с namespaced datasets и управления операциями запускается так:
@@ -97,12 +106,15 @@ API читает CSV/JSONL через namespaced repository, не отдавая
 файловой системе. Состояние фоновых операций сохраняется в persistent SQLite
 job store; незавершённые операции после перезапуска помечаются как прерванные,
 а история ограничивается по TTL и размеру. Лимиты настраиваются через
-`UNIVERSITY_OPERATION_MAX_RECORDS` и `UNIVERSITY_OPERATION_TTL_SECONDS`.
+`UNIVERSITY_OPERATION_MAX_RECORDS`, `UNIVERSITY_OPERATION_TTL_SECONDS` и
+`UNIVERSITY_OPERATION_WORKERS`. Операции конфликтуют только внутри одного
+вуза; разные university namespaces могут обновляться параллельно.
 
 После нормализации рядом с основным результатом создаётся
 `data/result/{university_id}/id_aliases.json`. Он сохраняет соответствия старых и новых ID:
-новые идентификаторы устойчивы к перестановке элементов API, а позиционный
-fallback применяется только при коллизии. В canonical domain числовые поля
+новые идентификаторы устойчивы к перестановке элементов API, URL source keys
+нормализуются, а aliases scoped по типу сущности. Позиционный fallback
+применяется только при коллизии. В canonical domain числовые поля
 типизированы, но исходные значения и предупреждения не теряются. Ontology
 provenance накапливает список `sources` при слиянии наблюдений.
 
@@ -130,7 +142,7 @@ python -m http.server 5173 --directory frontend
 Если нужно только уплотнить уже созданные производные файлы без потери полного набора ячеек:
 
 ```powershell
-university-data compact_study_plans --result ..\data\result\bmstu
+university-data compact_study_plans --university bmstu --result ..\data\result\bmstu
 ```
 
 ## Результат
@@ -163,6 +175,9 @@ university-data compact_study_plans --result ..\data\result\bmstu
 Полная таблица не дублируется в Ontology JSON: все значения хранятся в `data/result/{university_id}/study_plan_data/study_plan_cells.csv`, а Ontology и строки ссылаются на `table_id + row_index + column_index`. Это уменьшает дублирование и сохраняет lineage.
 
 Описание parser/backend-модели находится в [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). Инструкции приложений — в [`backend/README.md`](backend/README.md), [`frontend/README.md`](frontend/README.md) и [`contracts/README.md`](contracts/README.md).
+
+Пошаговый контракт подключения нового университета находится в
+[`docs/NEW_UNIVERSITY.md`](docs/NEW_UNIVERSITY.md).
 
 В Docker native PDF reader готов к работе из коробки: backend image содержит
 `poppler-utils` и проверяется в CI вызовом `pdftotext -v`.

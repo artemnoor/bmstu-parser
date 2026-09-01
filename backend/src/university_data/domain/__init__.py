@@ -1,4 +1,5 @@
-from .ids import global_stable_id, normalize_key
+from .aliases import build_id_aliases
+from .ids import canonical_source_key, global_stable_id, normalize_key
 from .models import (
     AdmissionRequirement,
     Curriculum,
@@ -31,6 +32,8 @@ __all__ = [
     "Teacher",
     "TuitionOption",
     "University",
+    "build_id_aliases",
+    "canonical_source_key",
     "global_stable_id",
     "normalize_key",
 ]

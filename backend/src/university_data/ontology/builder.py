@@ -2,26 +2,32 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..core.capability_registry import (
+    CORE_CAPABILITY_DEFINITIONS,
+    RELATION_CAPABILITIES,
+)
 from ..domain.ids import global_stable_id
 
 
 def build_ontology(
-    university_id: str, records: dict[str, list[dict[str, Any]]]
+    university_id: str,
+    records: dict[str, list[dict[str, Any]]],
+    *,
+    capabilities: dict[str, bool] | None = None,
 ) -> dict[str, Any]:
     type_names = {
         "universities": "university",
-        "faculties": "faculty",
-        "departments": "department",
         "study_directions": "study_direction",
-        "programs": "program",
-        "curricula": "curriculum",
-        "teachers": "teacher",
-        "admission_requirements": "admission_requirement",
-        "tuition_options": "tuition_option",
         "disciplines": "discipline",
         "semesters": "semester",
         "semester_loads": "semester_load",
     }
+    type_names.update(
+        {
+            definition.primary_dataset: definition.ontology_type
+            for definition in CORE_CAPABILITY_DEFINITIONS.values()
+        }
+    )
     objects_by_id: dict[str, dict[str, Any]] = {}
     links: list[dict[str, Any]] = []
     for entity_type, items in records.items():
@@ -72,6 +78,17 @@ def build_ontology(
                 ("semester_id", "semester"),
             ):
                 target = item.get(field_name)
+                target_capability = RELATION_CAPABILITIES.get(field_name)
+                if (
+                    target
+                    and capabilities is not None
+                    and target_capability is not None
+                    and not capabilities.get(target_capability, False)
+                ):
+                    # Optional relationships are represented in canonical
+                    # extensions by the normalizer; they must not become
+                    # synthetic Ontology edges to an unavailable dataset.
+                    continue
                 if field_name == "university_id" and target:
                     target = global_stable_id(university_id, "university", target)
                 if target:

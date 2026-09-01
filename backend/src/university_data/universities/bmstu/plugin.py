@@ -3,13 +3,20 @@ from __future__ import annotations
 import csv
 import json
 import shutil
+from collections.abc import Callable, Mapping
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
 from ...core.capabilities import UniversityCapabilities
 from ...core.config import ResolverSpec, load_plugin_config
-from ...core.plugin import UniversityConfig, UniversityOperations, UniversityProviders
+from ...core.plugin import (
+    ResolverRegistry,
+    UniversityConfig,
+    UniversityManifest,
+    UniversityOperations,
+    UniversityProviders,
+)
 from ...core.source_models import (
     SourceAdmissionRequirement,
     SourceCurriculum,
@@ -22,6 +29,7 @@ from ...domain.ids import deterministic_source_keys
 from ...domain.provenance import SourceProvenance
 from ...runtime.atomic import atomic_text_writer, atomic_write_json
 from ...sources.http import ApiClient
+from ...storage import UniversityStorage
 from .adapter.config import LIST_ENDPOINT, SOURCE_PAGE
 from .adapter.domain.models import PlanFile, StudyPlan
 from .adapter.ingestion.mirror_api import DetailFetch, MirrorApi
@@ -35,7 +43,9 @@ from .adapter.transform.text import safe_filename
 ROOT = Path(__file__).parent
 
 
-def _provenance(value: Any, *, raw_path: str = "") -> SourceProvenance:
+def _provenance(
+    value: Any, *, raw_path: str = "", source_key: str | None = None
+) -> SourceProvenance:
     source = getattr(value, "provenance", value)
     return SourceProvenance(
         source_page=str(getattr(source, "source_page", SOURCE_PAGE)),
@@ -44,7 +54,11 @@ def _provenance(value: Any, *, raw_path: str = "") -> SourceProvenance:
         detail_page=str(getattr(source, "detail_page", "")),
         fetched_at_utc=str(getattr(source, "fetched_at_utc", "")),
         raw_snapshot_path=raw_path or str(getattr(source, "raw_snapshot_path", "")),
-        source_key=str(getattr(source, "source_key", "")),
+        source_key=(
+            source_key
+            if source_key is not None
+            else str(getattr(source, "source_key", ""))
+        ),
     )
 
 
@@ -292,6 +306,8 @@ class BmstuSourceSnapshot:
 
 
 class _BmstuProvider:
+    persists_raw = True
+
     def __init__(self, snapshot: BmstuSourceSnapshot) -> None:
         self.snapshot = snapshot
 
@@ -331,7 +347,9 @@ class BmstuProgramsProvider(_BmstuProvider):
                             "program_id": program.id,
                         },
                         provenance=_provenance(
-                            program, raw_path=major.provenance.raw_snapshot_path
+                            program,
+                            raw_path=major.provenance.raw_snapshot_path,
+                            source_key=program_keys[program.id],
                         ),
                     )
                 )
@@ -353,7 +371,7 @@ class BmstuFacultiesProvider(_BmstuProvider):
                         name=faculty.name,
                         code=faculty.code,
                         raw=asdict(faculty),
-                        provenance=_provenance(faculty),
+                        provenance=_provenance(faculty, source_key=key),
                     ),
                 )
         return list(result.values())
@@ -381,7 +399,7 @@ class BmstuDepartmentsProvider(_BmstuProvider):
                             department.faculty_id, department.faculty_id
                         ),
                         raw=asdict(department),
-                        provenance=_provenance(department),
+                        provenance=_provenance(department, source_key=key),
                     ),
                 )
         return list(result.values())
@@ -403,7 +421,10 @@ class BmstuAdmissionProvider(_BmstuProvider):
                         is_choice=requirement.is_choice,
                         study_direction_key=direction_key,
                         raw=asdict(requirement),
-                        provenance=_provenance(requirement),
+                        provenance=_provenance(
+                            requirement,
+                            source_key=f"{direction_key}:{requirement.subject}:{requirement.id}",
+                        ),
                     )
                 )
         return result
@@ -429,7 +450,13 @@ class BmstuTuitionProvider(_BmstuProvider):
                         term=option.term,
                         study_direction_key=direction_key,
                         raw=asdict(option),
-                        provenance=_provenance(option),
+                        provenance=_provenance(
+                            option,
+                            source_key=(
+                                f"{direction_key}:{option.study_form}:"
+                                f"{option.term}:{option.id}"
+                            ),
+                        ),
                     )
                 )
         return result
@@ -612,7 +639,9 @@ class BmstuCurriculaProvider(_BmstuProvider):
                         "semantic_reports": semantic_reports,
                         "semantic_warnings": parse_warnings,
                     },
-                    provenance=_provenance(program),
+                    provenance=_provenance(
+                        program, source_key=f"{program_key}:curriculum"
+                    ),
                     extensions={
                         "study_plan_status": plan.status,
                         "study_plan_file_count": len(plan.files),
@@ -639,7 +668,8 @@ class BmstuOperations:
 
         # Replaying the namespaced raw snapshot makes every PDF operation use
         # the same Source DTO → canonical → ontology seam as a refresh.
-        plugin = BmstuPlugin(replay_dir=result_dir)
+        replay_dir = UniversityStorage(result_dir.parent, "bmstu").active_path()
+        plugin = BmstuPlugin(replay_dir=replay_dir)
         return UniversityPipeline(UniversityRegistry((plugin,))).run(
             "bmstu",
             PipelineOptions(
@@ -663,8 +693,21 @@ class BmstuPlugin:
         self.replay_dir = replay_dir
 
     def capabilities(self) -> UniversityCapabilities:
-        config = load_plugin_config(ROOT / "config.yaml")
+        config = load_plugin_config(ROOT / "manifest.yaml")
         return UniversityCapabilities(**config.capabilities)
+
+    def manifest(self) -> UniversityManifest:
+        config = load_plugin_config(ROOT / "manifest.yaml")
+        return UniversityManifest(
+            university_id=config.university_id,
+            display_name=config.display_name,
+            capabilities=UniversityCapabilities(**config.capabilities).specs(
+                allow_partial=config.allow_partial
+            ),
+            module_version=config.module_version,
+            config_path=ROOT / "manifest.yaml",
+            settings=config.settings,
+        )
 
     def providers(self, options: Any | None = None) -> UniversityProviders:
         if options is None:
@@ -681,18 +724,44 @@ class BmstuPlugin:
             tuition=BmstuTuitionProvider(snapshot),
         )
 
+    def resolvers(self) -> ResolverRegistry:
+        config = load_plugin_config(ROOT / "manifest.yaml")
+        return ResolverRegistry(specs=config.resolvers)
+
     def resolver_specs(self, field: str) -> tuple[ResolverSpec, ...]:
-        config = load_plugin_config(ROOT / "config.yaml")
+        config = load_plugin_config(ROOT / "manifest.yaml")
         return config.resolvers.get(field, ())
+
+    def resolver_builders(
+        self, field: str
+    ) -> Mapping[str, Callable[[ResolverSpec], Any]]:
+        return {}
 
     def operations(self) -> UniversityOperations:
         return BmstuOperations()
 
+    def migrate(
+        self,
+        source_dir: Path,
+        target_dir: Path,
+        *,
+        rebuild_derived: bool = True,
+        write_aliases: bool = True,
+    ) -> dict[str, Any]:
+        from .migration import migrate_bmstu
+
+        return migrate_bmstu(
+            source_dir,
+            target_dir,
+            rebuild_derived=rebuild_derived,
+            write_aliases=write_aliases,
+        )
+
     def config(self) -> UniversityConfig:
-        config = load_plugin_config(ROOT / "config.yaml")
+        config = load_plugin_config(ROOT / "manifest.yaml")
         return UniversityConfig(
             university_id=config.university_id,
             display_name=config.display_name,
-            config_path=ROOT / "config.yaml",
+            config_path=ROOT / "manifest.yaml",
             settings=config.settings,
         )

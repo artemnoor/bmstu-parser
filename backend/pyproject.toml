@@ -41,10 +41,13 @@ where = ["src"]
 [tool.setuptools.package-data]
 university_data = [
     "universities/bmstu/config.yaml",
+    "universities/bmstu/manifest.yaml",
     "universities/fake/config.yaml",
+    "universities/fake/manifest.yaml",
     "universities/fake/fixtures/*.json",
     "universities/fake/fixtures/*.xlsx",
     "universities/hse/config.yaml",
+    "universities/hse/manifest.yaml",
 ]
 
 [tool.pytest.ini_options]

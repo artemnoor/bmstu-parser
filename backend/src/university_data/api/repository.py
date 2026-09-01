@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from ..storage import UniversityStorage
+
 
 class DatasetNotFoundError(LookupError):
     pass
@@ -57,7 +59,10 @@ DATASET_SPECS = (
     ),
     DatasetSpec("teachers", Path("canonical/teachers.csv"), "csv", "Преподаватели"),
     DatasetSpec(
-        "admission", Path("canonical/admission.csv"), "csv", "Вступительные требования"
+        "admission",
+        Path("canonical/admission_requirements.csv"),
+        "csv",
+        "Вступительные требования",
     ),
     DatasetSpec(
         "admission_requirements",
@@ -96,7 +101,7 @@ DATASET_SPECS = (
     DatasetSpec(
         "majors", Path("majors.csv"), "csv", "Совместимый projection направлений"
     ),
-    DatasetSpec("departments", Path("departments.csv"), "csv", "Кафедры"),
+    DatasetSpec("departments", Path("canonical/departments.csv"), "csv", "Кафедры"),
     DatasetSpec(
         "educational_programs",
         Path("educational_programs.csv"),
@@ -149,6 +154,21 @@ _FALLBACKS = {
     ),
     "tuition_options": (Path("tuition.csv"), "csv"),
 }
+_DATASET_ENTITY_TYPES = {
+    "universities": "university",
+    "faculties": "faculty",
+    "departments": "department",
+    "study_directions": "study_direction",
+    "programs": "program",
+    "curricula": "curriculum",
+    "teachers": "teacher",
+    "admission": "admission_requirement",
+    "admission_requirements": "admission_requirement",
+    "tuition_options": "tuition_option",
+    "disciplines": "discipline",
+    "semesters": "semester",
+    "semester_loads": "semester_load",
+}
 
 
 class DatasetRepository:
@@ -159,7 +179,9 @@ class DatasetRepository:
             "..",
         }:
             raise ValueError("Invalid university namespace")
-        self.result_dir = result_root / university_id
+        self.storage = UniversityStorage(result_root, university_id)
+        self.university_dir = self.storage.path
+        self.result_dir = self.storage.active_path()
         self.university_id = university_id
 
     def spec(self, name: str) -> DatasetSpec:
@@ -198,26 +220,34 @@ class DatasetRepository:
             )
         return result
 
-    def _aliases(self) -> dict[str, str]:
+    def _aliases(self) -> dict[tuple[str, str], str]:
         path = self.result_dir / "id_aliases.json"
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             return {}
         return {
-            str(item.get("legacy_id")): str(item.get("canonical_id"))
+            (
+                str(item.get("entity_type", "")).strip(),
+                str(item.get("legacy_id")),
+            ): str(item.get("canonical_id"))
             for item in payload.get("aliases", [])
             if isinstance(item, dict)
             and item.get("legacy_id")
             and item.get("canonical_id")
         }
 
-    def resolve_alias(self, value: str) -> str:
+    def resolve_alias(self, value: str, *, entity_type: str = "") -> str:
         aliases = self._aliases()
         seen: set[str] = set()
-        while value in aliases and value not in seen:
+        while value not in seen:
             seen.add(value)
-            value = aliases[value]
+            canonical = aliases.get((entity_type, value))
+            if canonical is None:
+                canonical = aliases.get(("", value))
+            if canonical is None:
+                break
+            value = canonical
         return value
 
     def iter_rows(self, name: str) -> Iterator[dict[str, Any]]:
@@ -247,7 +277,9 @@ class DatasetRepository:
     ) -> dict[str, Any]:
         filters = dict(filters or {})
         if "id" in filters:
-            filters["id"] = self.resolve_alias(filters["id"])
+            filters["id"] = self.resolve_alias(
+                filters["id"], entity_type=_DATASET_ENTITY_TYPES.get(name, "")
+            )
         items: list[dict[str, Any]] = []
         for row in self.iter_rows(name):
             if any(
@@ -294,7 +326,7 @@ class DatasetRepository:
         return all(known) if known else None
 
     def runs(self, limit: int = 20) -> list[dict[str, Any]]:
-        directory = self.result_dir / "pipeline_runs"
+        directory = self.university_dir / "pipeline_runs"
         result = []
         for path in (
             sorted(

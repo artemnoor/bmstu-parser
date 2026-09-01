@@ -34,6 +34,10 @@ GET /api/v1/universities/fake/datasets/disciplines/rows?q=математика
 Отключённая capability возвращает `404` с кодом `capability_unavailable`.
 Отсутствующий опубликованный dataset возвращает `503` с кодом
 `dataset_not_published`.
+В quality report capability может иметь статус `published`, `degraded`,
+`not_supported`, `not_published` или `failed`. `degraded` публикуется только
+если модуль явно разрешил partial result; причины находятся в
+`capability_warnings` и `capability_gaps`.
 
 ## Canonical records
 
@@ -55,17 +59,24 @@ GET /api/v1/universities/fake/datasets/disciplines/rows?q=математика
     }
   },
   "extensions": {},
-  "provenance": {}
+  "provenance": {
+    "source_page": "https://source.example/catalog",
+    "source_key": "https://source.example/programs/statistics"
+  }
 }
 ```
 
 ID строятся из `university_id`, типа сущности и устойчивого business key.
-Старые BMSTU ID разрешаются через `id_aliases.json` после migration.
+Старые IDs разрешаются через `id_aliases.json`; aliases scoped по типу сущности.
+Provider contract не пропускает source record без `source_key` и реального
+URL/страницы; для provider, сохраняющего raw, обязателен также raw lineage.
 
 ## Operations
 
-Изменяющие операции выполняются последовательно одним worker и сохраняют
-статус в persistent job store:
+Изменяющие операции сохраняют статус в persistent job store. Для одного вуза
+одновременно выполняется не более одной операции, а разные вузы могут
+обрабатываться параллельно; число workers настраивается через
+`UNIVERSITY_OPERATION_WORKERS`:
 
 - `refresh` — загрузить источник и пересобрать каталог;
 - `extract_study_plans` — извлечь документы и таблицы;
@@ -88,6 +99,8 @@ Invoke-RestMethod "http://127.0.0.1:8000/api/v1/universities/fake/operations/$($
 ```text
 data/result/{university_id}/
 ├── raw/ canonical/ semantic/ quality/ pipeline_runs/
+├── current.json
+├── .snapshots/<run_id>/
 ├── ontology.json
 └── id_aliases.json
 ```

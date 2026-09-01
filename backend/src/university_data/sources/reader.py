@@ -164,7 +164,7 @@ def _extract_pdf(
     temp_dir: tempfile.TemporaryDirectory[str] | None = None
     source_path = path
     if any(ord(character) > 127 for character in str(path)):
-        temp_dir = tempfile.TemporaryDirectory(prefix="bmstu_pdf_")
+        temp_dir = tempfile.TemporaryDirectory(prefix="university_pdf_")
         source_path = Path(temp_dir.name) / "source.pdf"
         shutil.copyfile(path, source_path)
     try:

@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from ..core.plugin import manifest_for_plugin
 from ..core.registry import UniversityRegistry
 from ..pipeline import PipelineOptions, UniversityPipeline
 from .models import OperationRequest
@@ -23,10 +24,11 @@ def execute_operation(
     """Execute a scoped operation through the generic pipeline or plugin seam."""
 
     plugin = registry.require(university_id)
-    result_dir = result_root / plugin.university_id
+    manifest = manifest_for_plugin(plugin)
+    result_dir = result_root / manifest.university_id
     if request.operation == "refresh":
         report = UniversityPipeline(registry).run(
-            plugin.university_id,
+            manifest.university_id,
             PipelineOptions(
                 output_dir=result_root,
                 workers=request.workers,
@@ -43,7 +45,7 @@ def execute_operation(
         report = plugin.operations().execute(request, result_dir)
     result = {
         "operation": request.operation,
-        "university_id": plugin.university_id,
+        "university_id": manifest.university_id,
         "quality": report,
     }
     if request.strict and not report.get("verification", {}).get("passed", False):

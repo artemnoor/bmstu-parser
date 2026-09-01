@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import asdict
 from decimal import Decimal, InvalidOperation
 from typing import Any
@@ -36,9 +37,39 @@ from ..resolvers.engine import Resolution
 
 
 def _extensions(
-    university_id: str, values: dict[str, Any]
+    university_id: str,
+    values: dict[str, Any],
+    legacy_ids: tuple[str, ...] = (),
+    unresolved_references: Mapping[str, str] | None = None,
 ) -> dict[str, dict[str, Any]]:
-    return {university_id: dict(values)} if values else {}
+    result = dict(values)
+    if legacy_ids:
+        result["legacy_ids"] = list(legacy_ids)
+    if unresolved_references:
+        existing = result.get("unresolved_references", {})
+        merged = dict(existing) if isinstance(existing, dict) else {}
+        merged.update(unresolved_references)
+        result["unresolved_references"] = merged
+    return {university_id: result} if result else {}
+
+
+def _relation_id(
+    university_id: str,
+    entity_type: str,
+    source_key: str,
+    capability: str,
+    available_capabilities: Mapping[str, bool] | None,
+    unresolved_references: dict[str, str],
+    field_name: str,
+) -> str:
+    if not source_key:
+        return ""
+    if available_capabilities is not None and not available_capabilities.get(
+        capability, False
+    ):
+        unresolved_references[field_name] = source_key
+        return ""
+    return global_stable_id(university_id, entity_type, source_key)
 
 
 def _published_meta(value: Any) -> FieldMeta:
@@ -92,15 +123,26 @@ class CanonicalNormalizer:
             provenance=provenance,
         )
 
-    def program(self, university_id: str, source: SourceProgram) -> Program:
+    def program(
+        self,
+        university_id: str,
+        source: SourceProgram,
+        *,
+        available_capabilities: Mapping[str, bool] | None = None,
+    ) -> Program:
+        unresolved: dict[str, str] = {}
         identifier = global_stable_id(
             university_id, "program", source.source_key or source.code or source.name
         )
         direction_key = source.study_direction_key or source.code or source.name
-        department_id = (
-            global_stable_id(university_id, "department", source.department_key)
-            if source.department_key
-            else ""
+        department_id = _relation_id(
+            university_id,
+            "department",
+            source.department_key,
+            "departments",
+            available_capabilities,
+            unresolved,
+            "department_key",
         )
         return Program(
             id=identifier,
@@ -117,7 +159,12 @@ class CanonicalNormalizer:
                 "name": _published_meta(source.name),
                 "code": _published_meta(source.code),
             },
-            extensions=_extensions(university_id, source.extensions),
+            extensions=_extensions(
+                university_id,
+                source.extensions,
+                source.legacy_ids,
+                unresolved,
+            ),
             provenance=source.provenance,
         )
 
@@ -135,11 +182,18 @@ class CanonicalNormalizer:
                 "name": _published_meta(source.name),
                 "code": _published_meta(source.code),
             },
-            extensions=_extensions(university_id, source.extensions),
+            extensions=_extensions(university_id, source.extensions, source.legacy_ids),
             provenance=source.provenance,
         )
 
-    def department(self, university_id: str, source: SourceDepartment) -> Department:
+    def department(
+        self,
+        university_id: str,
+        source: SourceDepartment,
+        *,
+        available_capabilities: Mapping[str, bool] | None = None,
+    ) -> Department:
+        unresolved: dict[str, str] = {}
         return Department(
             id=global_stable_id(
                 university_id,
@@ -149,32 +203,57 @@ class CanonicalNormalizer:
             university_id=university_id,
             name=source.name,
             code=source.code,
-            faculty_id=(
-                global_stable_id(university_id, "faculty", source.faculty_key)
-                if source.faculty_key
-                else ""
+            faculty_id=_relation_id(
+                university_id,
+                "faculty",
+                source.faculty_key,
+                "faculties",
+                available_capabilities,
+                unresolved,
+                "faculty_key",
             ),
             field_meta={
                 "name": _published_meta(source.name),
                 "code": _published_meta(source.code),
             },
-            extensions=_extensions(university_id, source.extensions),
+            extensions=_extensions(
+                university_id,
+                source.extensions,
+                source.legacy_ids,
+                unresolved,
+            ),
             provenance=source.provenance,
         )
 
-    def curriculum(self, university_id: str, source: SourceCurriculum) -> Curriculum:
+    def curriculum(
+        self,
+        university_id: str,
+        source: SourceCurriculum,
+        *,
+        available_capabilities: Mapping[str, bool] | None = None,
+    ) -> Curriculum:
+        unresolved: dict[str, str] = {}
         return Curriculum(
             id=global_stable_id(university_id, "curriculum", source.source_key),
             university_id=university_id,
-            program_id=(
-                global_stable_id(university_id, "program", source.program_key)
-                if source.program_key
-                else ""
+            program_id=_relation_id(
+                university_id,
+                "program",
+                source.program_key,
+                "programs",
+                available_capabilities,
+                unresolved,
+                "program_key",
             ),
             name=source.name,
             source_path=str(source.path or ""),
             field_meta={"name": _published_meta(source.name)},
-            extensions=_extensions(university_id, source.extensions),
+            extensions=_extensions(
+                university_id,
+                source.extensions,
+                source.legacy_ids,
+                unresolved,
+            ),
             provenance=source.provenance,
         )
 
@@ -183,7 +262,10 @@ class CanonicalNormalizer:
         university_id: str,
         source: SourceDiscipline,
         resolution: Resolution[int | float],
+        *,
+        available_capabilities: Mapping[str, bool] | None = None,
     ) -> Discipline:
+        unresolved: dict[str, str] = {}
         return Discipline(
             id=global_stable_id(
                 university_id, "discipline", source.source_key or source.name
@@ -191,10 +273,14 @@ class CanonicalNormalizer:
             university_id=university_id,
             name=source.name,
             code=source.code,
-            curriculum_id=(
-                global_stable_id(university_id, "curriculum", source.curriculum_key)
-                if source.curriculum_key
-                else ""
+            curriculum_id=_relation_id(
+                university_id,
+                "curriculum",
+                source.curriculum_key,
+                "curricula",
+                available_capabilities,
+                unresolved,
+                "curriculum_key",
             ),
             total_hours=resolution.value,
             credits=source.credits,
@@ -208,11 +294,23 @@ class CanonicalNormalizer:
                     warnings=resolution.warnings,
                 )
             },
-            extensions=_extensions(university_id, source.extensions),
+            extensions=_extensions(
+                university_id,
+                source.extensions,
+                source.legacy_ids,
+                unresolved,
+            ),
             provenance=source.provenance,
         )
 
-    def teacher(self, university_id: str, source: SourceTeacher) -> Teacher:
+    def teacher(
+        self,
+        university_id: str,
+        source: SourceTeacher,
+        *,
+        available_capabilities: Mapping[str, bool] | None = None,
+    ) -> Teacher:
+        unresolved: dict[str, str] = {}
         return Teacher(
             id=global_stable_id(
                 university_id, "teacher", source.source_key or source.name
@@ -220,14 +318,23 @@ class CanonicalNormalizer:
             university_id=university_id,
             name=source.name,
             position=source.position,
-            department_id=(
-                global_stable_id(university_id, "department", source.department_key)
-                if source.department_key
-                else ""
+            department_id=_relation_id(
+                university_id,
+                "department",
+                source.department_key,
+                "departments",
+                available_capabilities,
+                unresolved,
+                "department_key",
             ),
             email=source.email,
             field_meta={"name": _published_meta(source.name)},
-            extensions=_extensions(university_id, source.extensions),
+            extensions=_extensions(
+                university_id,
+                source.extensions,
+                source.legacy_ids,
+                unresolved,
+            ),
             provenance=source.provenance,
         )
 
@@ -237,23 +344,36 @@ class CanonicalNormalizer:
             university_id=university_id,
             number=source.number,
             field_meta={"number": _published_meta(source.number)},
-            extensions=_extensions(university_id, source.extensions),
+            extensions=_extensions(university_id, source.extensions, source.legacy_ids),
             provenance=source.provenance,
         )
 
     def semester_load(
-        self, university_id: str, source: SourceSemesterLoad
+        self,
+        university_id: str,
+        source: SourceSemesterLoad,
+        *,
+        available_capabilities: Mapping[str, bool] | None = None,
     ) -> SemesterLoad:
-        discipline_id = (
-            global_stable_id(university_id, "discipline", source.discipline_key)
-            if source.discipline_key
-            else ""
+        unresolved: dict[str, str] = {}
+        discipline_id = _relation_id(
+            university_id,
+            "discipline",
+            source.discipline_key,
+            "curricula",
+            available_capabilities,
+            unresolved,
+            "discipline_key",
         )
         semester_id = global_stable_id(university_id, "semester", source.semester)
-        curriculum_id = (
-            global_stable_id(university_id, "curriculum", source.curriculum_key)
-            if source.curriculum_key
-            else ""
+        curriculum_id = _relation_id(
+            university_id,
+            "curriculum",
+            source.curriculum_key,
+            "curricula",
+            available_capabilities,
+            unresolved,
+            "curriculum_key",
         )
         return SemesterLoad(
             id=global_stable_id(
@@ -269,13 +389,23 @@ class CanonicalNormalizer:
                 "hours": _published_meta(source.hours),
                 "credits": _published_meta(source.credits),
             },
-            extensions=_extensions(university_id, source.extensions),
+            extensions=_extensions(
+                university_id,
+                source.extensions,
+                source.legacy_ids,
+                unresolved,
+            ),
             provenance=source.provenance,
         )
 
     def admission(
-        self, university_id: str, source: SourceAdmissionRequirement
+        self,
+        university_id: str,
+        source: SourceAdmissionRequirement,
+        *,
+        available_capabilities: Mapping[str, bool] | None = None,
     ) -> AdmissionRequirement:
+        unresolved: dict[str, str] = {}
         return AdmissionRequirement(
             id=global_stable_id(
                 university_id,
@@ -284,26 +414,44 @@ class CanonicalNormalizer:
             ),
             university_id=university_id,
             subject=source.subject,
-            program_id=(
-                global_stable_id(university_id, "program", source.program_key)
-                if source.program_key
-                else ""
+            program_id=_relation_id(
+                university_id,
+                "program",
+                source.program_key,
+                "programs",
+                available_capabilities,
+                unresolved,
+                "program_key",
             ),
-            study_direction_id=(
-                global_stable_id(
-                    university_id, "study_direction", source.study_direction_key
-                )
-                if source.study_direction_key
-                else ""
+            study_direction_id=_relation_id(
+                university_id,
+                "study_direction",
+                source.study_direction_key,
+                "programs",
+                available_capabilities,
+                unresolved,
+                "study_direction_key",
             ),
             minimum_score=source.minimum_score,
             is_choice=source.is_choice,
             field_meta={"minimum_score": _published_meta(source.minimum_score)},
-            extensions=_extensions(university_id, source.extensions),
+            extensions=_extensions(
+                university_id,
+                source.extensions,
+                source.legacy_ids,
+                unresolved,
+            ),
             provenance=source.provenance,
         )
 
-    def tuition(self, university_id: str, source: SourceTuition) -> TuitionOption:
+    def tuition(
+        self,
+        university_id: str,
+        source: SourceTuition,
+        *,
+        available_capabilities: Mapping[str, bool] | None = None,
+    ) -> TuitionOption:
+        unresolved: dict[str, str] = {}
         value = _decimal_or_none(source.value)
         return TuitionOption(
             id=global_stable_id(
@@ -313,23 +461,34 @@ class CanonicalNormalizer:
             ),
             university_id=university_id,
             study_form=source.study_form,
-            program_id=(
-                global_stable_id(university_id, "program", source.program_key)
-                if source.program_key
-                else ""
+            program_id=_relation_id(
+                university_id,
+                "program",
+                source.program_key,
+                "programs",
+                available_capabilities,
+                unresolved,
+                "program_key",
             ),
-            study_direction_id=(
-                global_stable_id(
-                    university_id, "study_direction", source.study_direction_key
-                )
-                if source.study_direction_key
-                else ""
+            study_direction_id=_relation_id(
+                university_id,
+                "study_direction",
+                source.study_direction_key,
+                "programs",
+                available_capabilities,
+                unresolved,
+                "study_direction_key",
             ),
             value=value,
             currency=source.currency,
             term=source.term,
             field_meta={"value": _published_meta(value)},
-            extensions=_extensions(university_id, source.extensions),
+            extensions=_extensions(
+                university_id,
+                source.extensions,
+                source.legacy_ids,
+                unresolved,
+            ),
             provenance=source.provenance,
         )
 

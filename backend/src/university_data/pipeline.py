@@ -1,13 +1,21 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
+from time import perf_counter
 from typing import Any
 
-from .core.contracts import ProviderContractError, validate_provider_output
+from .core.capability_registry import CORE_CAPABILITY_DEFINITIONS, capability_definition
+from .core.contracts import ProviderContractError, validate_provider_result
+from .core.plugin import (
+    manifest_for_plugin,
+    resolver_builders_for,
+    resolver_specs_for,
+)
 from .core.registry import UniversityRegistry
 from .core.source_models import SourceDiscipline, SourceSemester, SourceSemesterLoad
+from .domain.aliases import build_id_aliases
 from .domain.ids import deterministic_source_keys
 from .domain.provenance import SourceProvenance
 from .normalization import CanonicalNormalizer
@@ -57,17 +65,72 @@ class UniversityPipeline:
     ) -> dict[str, Any]:
         options = options or PipelineOptions()
         plugin = self.registry.require(university_id)
-        university_id = plugin.university_id
-        pipeline_run = PipelineRun(
-            options.output_dir / university_id, "university_pipeline"
-        )
-        capabilities = plugin.capabilities()
+        manifest = manifest_for_plugin(plugin)
+        university_id = manifest.university_id
+        output_root = options.output_dir.resolve()
+        pipeline_run = PipelineRun(output_root / university_id, "university_pipeline")
+        final_storage = UniversityStorage(output_root, university_id)
+        candidate = final_storage.candidate(pipeline_run.run_id)
+        candidate.ensure()
+        candidate_options = replace(options, output_dir=candidate.root)
+        published = False
+        finished = False
+
+        try:
+            quality = self._run_candidate(
+                university_id,
+                candidate_options,
+                plugin,
+                manifest,
+                candidate,
+                pipeline_run,
+                final_storage,
+            )
+            passed = bool(quality["verification"]["passed"])
+            if passed:
+                final_storage.publish(candidate, pipeline_run.run_id)
+                published = True
+                pipeline_run.finish(status="succeeded", quality=quality)
+            else:
+                pipeline_run.finish(status="failed", quality=quality)
+            finished = True
+            if options.strict and not passed:
+                raise RuntimeError(f"Quality gate failed for {university_id}")
+            return quality
+        except Exception as exc:
+            if not finished:
+                pipeline_run.finish(
+                    status="failed", error=f"{type(exc).__name__}: {exc}"
+                )
+            raise
+        finally:
+            if not published:
+                candidate.discard()
+
+    def _run_candidate(
+        self,
+        university_id: str,
+        options: PipelineOptions,
+        plugin: Any,
+        manifest: Any,
+        storage: UniversityStorage,
+        pipeline_run: PipelineRun,
+        previous_storage: UniversityStorage,
+    ) -> dict[str, Any]:
+        capability_specs = manifest.capability_specs()
+        capabilities = manifest.capabilities_dict()
+        available_datasets = {"universities"}
+        for spec in capability_specs:
+            if spec.enabled:
+                available_datasets.update(
+                    CORE_CAPABILITY_DEFINITIONS[spec.name].datasets
+                )
         providers = plugin.providers(options)
         records: dict[str, list[dict[str, Any]]] = {
             "universities": [
                 self.normalizer.university(
                     university_id,
-                    plugin.display_name,
+                    manifest.display_name,
                     SourceProvenance(source_key=university_id),
                 ).to_dict()
             ],
@@ -84,46 +147,139 @@ class UniversityPipeline:
             "semester_loads": [],
         }
         errors: list[str] = []
+        capability_states: dict[str, str] = {}
+        capability_warnings: dict[str, list[str]] = {}
+        capability_gaps: dict[str, list[dict[str, str]]] = {}
+        capability_metrics: dict[str, dict[str, Any]] = {}
 
-        for capability in capabilities.supported():
-            provider = providers.for_capability(capability)
+        for spec in capability_specs:
+            capability = spec.name
+            if not spec.enabled:
+                capability_states[capability] = "not_supported"
+                capability_metrics[capability] = {
+                    "status": "not_supported",
+                    "records": 0,
+                    "warnings": 0,
+                    "gaps": 0,
+                    "failures": 0,
+                    "duration_ms": 0.0,
+                }
+                continue
+            provider_lookup = getattr(providers, "for_capability", None)
+            provider = (
+                provider_lookup(capability)
+                if callable(provider_lookup)
+                else providers.get(capability)
+            )
             if provider is None:
                 raise ProviderContractError(
                     f"capability {capability!r} is declared but provider is missing"
                 )
+            started = perf_counter()
+            records_count = 0
+            warnings_count = 0
+            gaps_count = 0
             try:
-                source_items = validate_provider_output(
+                provider_result = validate_provider_result(
                     capability, provider, provider.fetch()
                 )
+                records_count = len(provider_result.records)
+                warnings_count = len(provider_result.warnings)
+                gaps_count = len(provider_result.gaps)
+                if not provider_result.complete and not spec.allow_partial:
+                    capability_states[capability] = "failed"
+                    errors.append(
+                        f"{capability}: provider returned partial data but the module "
+                        "does not allow partial publication"
+                    )
+                    continue
+                source_items = list(provider_result.records)
+                capability_states[capability] = (
+                    "published" if provider_result.complete else "degraded"
+                )
+                if provider_result.warnings:
+                    capability_warnings[capability] = list(provider_result.warnings)
+                if provider_result.gaps:
+                    capability_gaps[capability] = [
+                        {
+                            "code": gap.code,
+                            "message": gap.message,
+                            "source_key": gap.source_key,
+                        }
+                        for gap in provider_result.gaps
+                    ]
                 self._materialize_capability(
-                    university_id, capability, source_items, plugin, records
+                    university_id,
+                    capability,
+                    source_items,
+                    plugin,
+                    records,
+                    capabilities,
                 )
             except ProviderContractError:
                 raise
             except Exception as exc:  # noqa: BLE001
+                capability_states[capability] = "failed"
                 errors.append(f"{capability}: {type(exc).__name__}: {exc}")
+            finally:
+                capability_status = capability_states.get(capability, "failed")
+                capability_metrics[capability] = {
+                    "status": capability_status,
+                    "records": records_count,
+                    "warnings": warnings_count,
+                    "gaps": gaps_count,
+                    "failures": int(capability_status == "failed"),
+                    "duration_ms": round((perf_counter() - started) * 1000, 3),
+                }
 
-        ontology = build_ontology(university_id, records)
+        ontology = build_ontology(
+            university_id,
+            records,
+            capabilities=capabilities,
+        )
         quality = build_quality_report(
             university_id,
-            capabilities.as_dict(),
+            capability_specs,
             records,
             errors=errors,
             ontology=ontology,
+            capability_states=capability_states,
+            capability_warnings=capability_warnings,
+            capability_gaps=capability_gaps,
+            capability_metrics=capability_metrics,
+            module_version=manifest.module_version,
+            module_config_hash=manifest.config_hash(),
+            active_snapshot=pipeline_run.run_id,
         )
-        storage = UniversityStorage(options.output_dir, university_id)
+        aliases = build_id_aliases(
+            previous_storage.read_canonical_records(),
+            records,
+            existing=previous_storage.read_aliases(),
+        )
         storage.ensure()
         storage.write_json(
             "canonical/catalog.json",
             {
                 "university_id": university_id,
-                "records": records,
+                "records": {
+                    name: items
+                    for name, items in records.items()
+                    if name in available_datasets
+                },
                 "quality": quality,
                 "generated_at_utc": _now(),
             },
         )
         storage.write_json("ontology.json", ontology)
         storage.write_json("quality/report.json", quality)
+        storage.write_json(
+            "id_aliases.json",
+            {
+                "schema_version": "1.0",
+                "university_id": university_id,
+                "aliases": aliases,
+            },
+        )
         semantic_rows = [
             item
             for item in records["disciplines"]
@@ -142,33 +298,43 @@ class UniversityPipeline:
                 for value in item["extensions"].values()
             )
         ]
-        storage.write_jsonl("semantic/study_plan_disciplines.jsonl", semantic_rows)
-        storage.write_jsonl("semantic/study_plan_semester_loads.jsonl", semantic_loads)
-        storage.write_json(
-            "semantic/reports.json",
-            {
-                "curricula": [
-                    {
-                        "curriculum_id": item.get("id", ""),
-                        "extensions": item.get("extensions", {}),
-                    }
-                    for item in records["curricula"]
-                    if item.get("extensions")
-                ],
-                "counts": {
-                    "disciplines": len(semantic_rows),
-                    "semester_loads": len(semantic_loads),
+        if capabilities.get("curricula", False):
+            storage.write_jsonl("semantic/study_plan_disciplines.jsonl", semantic_rows)
+            storage.write_jsonl(
+                "semantic/study_plan_semester_loads.jsonl", semantic_loads
+            )
+            storage.write_json(
+                "semantic/reports.json",
+                {
+                    "curricula": [
+                        {
+                            "curriculum_id": item.get("id", ""),
+                            "extensions": item.get("extensions", {}),
+                        }
+                        for item in records["curricula"]
+                        if item.get("extensions")
+                    ],
+                    "counts": {
+                        "disciplines": len(semantic_rows),
+                        "semester_loads": len(semantic_loads),
+                    },
                 },
-            },
-        )
+            )
         for name, items in records.items():
+            if name not in available_datasets:
+                continue
             storage.write_jsonl(f"canonical/{name}.jsonl", items)
             storage.write_csv(f"canonical/{name}.csv", items)
         pipeline_run.stage(
             "source_ingestion",
             inputs=["raw"],
             outputs=["raw"],
-            metadata={"capabilities": capabilities.as_dict()},
+            metadata={
+                "capabilities": capabilities,
+                "module_version": manifest.module_version,
+                "module_config_hash": manifest.config_hash(),
+                "capability_metrics": capability_metrics,
+            },
         )
         pipeline_run.stage(
             "canonical_materialization",
@@ -191,12 +357,6 @@ class UniversityPipeline:
             outputs=["quality/report.json"],
             quality=quality,
         )
-        pipeline_run.finish(
-            status="succeeded" if quality["verification"]["passed"] else "failed",
-            quality=quality,
-        )
-        if options.strict and not quality["verification"]["passed"]:
-            raise RuntimeError(f"Quality gate failed for {university_id}")
         return quality
 
     def _materialize_capability(
@@ -206,54 +366,97 @@ class UniversityPipeline:
         source_items: list[Any],
         plugin: Any,
         records: dict[str, list[dict[str, Any]]],
+        capabilities: dict[str, bool],
     ) -> None:
-        if capability == "faculties":
-            records["faculties"] = [
-                self.normalizer.faculty(university_id, item).to_dict()
-                for item in source_items
-            ]
-            return
-        if capability == "departments":
-            records["departments"] = [
-                self.normalizer.department(university_id, item).to_dict()
-                for item in source_items
-            ]
-            return
-        if capability == "programs":
-            self._programs(university_id, source_items, records)
-            return
-        if capability == "teachers":
-            records["teachers"] = [
-                self.normalizer.teacher(university_id, item).to_dict()
-                for item in source_items
-            ]
-            return
-        if capability == "admission":
-            records["admission_requirements"] = [
-                self.normalizer.admission(university_id, item).to_dict()
-                for item in source_items
-            ]
-            return
-        if capability == "tuition":
-            records["tuition_options"] = [
-                self.normalizer.tuition(university_id, item).to_dict()
-                for item in source_items
-            ]
-            return
+        definition = capability_definition(capability)
         if capability == "curricula":
             curricula, disciplines, semesters, loads = self._curricula(
-                university_id, source_items, plugin
+                university_id, source_items, plugin, capabilities
             )
             records["curricula"] = curricula
             records["disciplines"] = disciplines
             records["semesters"] = semesters
             records["semester_loads"] = loads
+            return
+        materializer = getattr(self, definition.materializer)
+        materialized = materializer(university_id, source_items, records, capabilities)
+        if materialized is not None:
+            records[definition.primary_dataset] = materialized
+
+    def _faculties(
+        self,
+        university_id: str,
+        source_items: list[Any],
+        _records: dict[str, list[dict[str, Any]]],
+        _capabilities: dict[str, bool],
+    ) -> list[dict[str, Any]]:
+        return [
+            self.normalizer.faculty(university_id, item).to_dict()
+            for item in source_items
+        ]
+
+    def _departments(
+        self,
+        university_id: str,
+        source_items: list[Any],
+        _records: dict[str, list[dict[str, Any]]],
+        capabilities: dict[str, bool],
+    ) -> list[dict[str, Any]]:
+        return [
+            self.normalizer.department(
+                university_id, item, available_capabilities=capabilities
+            ).to_dict()
+            for item in source_items
+        ]
+
+    def _teachers(
+        self,
+        university_id: str,
+        source_items: list[Any],
+        _records: dict[str, list[dict[str, Any]]],
+        capabilities: dict[str, bool],
+    ) -> list[dict[str, Any]]:
+        return [
+            self.normalizer.teacher(
+                university_id, item, available_capabilities=capabilities
+            ).to_dict()
+            for item in source_items
+        ]
+
+    def _admission(
+        self,
+        university_id: str,
+        source_items: list[Any],
+        _records: dict[str, list[dict[str, Any]]],
+        capabilities: dict[str, bool],
+    ) -> list[dict[str, Any]]:
+        return [
+            self.normalizer.admission(
+                university_id, item, available_capabilities=capabilities
+            ).to_dict()
+            for item in source_items
+        ]
+
+    def _tuition(
+        self,
+        university_id: str,
+        source_items: list[Any],
+        _records: dict[str, list[dict[str, Any]]],
+        capabilities: dict[str, bool],
+    ) -> list[dict[str, Any]]:
+        return [
+            self.normalizer.tuition(
+                university_id, item, available_capabilities=capabilities
+            ).to_dict()
+            for item in source_items
+        ]
 
     def _programs(
         self,
         university_id: str,
         source_items: list[Any],
         records: dict[str, list[dict[str, Any]]],
+        capabilities: dict[str, bool],
     ) -> None:
         programs: list[dict[str, Any]] = []
         directions: dict[str, dict[str, Any]] = {}
@@ -269,12 +472,22 @@ class UniversityPipeline:
                 provenance=item.provenance,
             ).to_dict()
             directions.setdefault(direction_key, direction)
-            programs.append(self.normalizer.program(university_id, item).to_dict())
+            programs.append(
+                self.normalizer.program(
+                    university_id,
+                    item,
+                    available_capabilities=capabilities,
+                ).to_dict()
+            )
         records["study_directions"] = list(directions.values())
         records["programs"] = programs
 
     def _curricula(
-        self, university_id: str, source_items: list[Any], plugin: Any
+        self,
+        university_id: str,
+        source_items: list[Any],
+        plugin: Any,
+        capabilities: dict[str, bool],
     ) -> tuple[
         list[dict[str, Any]],
         list[dict[str, Any]],
@@ -285,10 +498,17 @@ class UniversityPipeline:
         disciplines: list[dict[str, Any]] = []
         semesters: dict[int, dict[str, Any]] = {}
         semester_loads: list[dict[str, Any]] = []
-        chain = build_resolver_chain(plugin.resolver_specs("total_hours"))
+        custom_builders = resolver_builders_for(plugin, "total_hours")
+        chain = build_resolver_chain(
+            resolver_specs_for(plugin, "total_hours"), custom=custom_builders
+        )
         for source in source_items:
             curricula.append(
-                self.normalizer.curriculum(university_id, source).to_dict()
+                self.normalizer.curriculum(
+                    university_id,
+                    source,
+                    available_capabilities=capabilities,
+                ).to_dict()
             )
             rows = [
                 row
@@ -332,7 +552,10 @@ class UniversityPipeline:
                 )
                 resolution = self._resolve_hours(chain, source_discipline, row)
                 canonical_discipline = self.normalizer.discipline(
-                    university_id, source_discipline, resolution
+                    university_id,
+                    source_discipline,
+                    resolution,
+                    available_capabilities=capabilities,
                 )
                 disciplines.append(canonical_discipline.to_dict())
                 raw_loads = row.get("semester_loads")
@@ -388,7 +611,9 @@ class UniversityPipeline:
                     )
                     semester_loads.append(
                         self.normalizer.semester_load(
-                            university_id, load_source
+                            university_id,
+                            load_source,
+                            available_capabilities=capabilities,
                         ).to_dict()
                     )
         return curricula, disciplines, list(semesters.values()), semester_loads

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable, Mapping
 from pathlib import Path
 
 import pytest
@@ -10,16 +11,33 @@ from openpyxl import Workbook
 from university_data import REGISTRY
 from university_data.api.app import create_app
 from university_data.api.config import ApiSettings
-from university_data.core.capabilities import UniversityCapabilities
-from university_data.core.config import load_plugin_config
+from university_data.core.capabilities import CapabilitySpec, UniversityCapabilities
+from university_data.core.config import ResolverSpec, load_plugin_config
 from university_data.core.contracts import (
     ProviderContractError,
     validate_provider_output,
 )
-from university_data.core.plugin import UniversityProviders
+from university_data.core.plugin import (
+    DataGap,
+    ProviderResult,
+    ProviderSet,
+    ResolverRegistry,
+    UniversityManifest,
+    UniversityProviders,
+)
 from university_data.core.registry import UniversityRegistry
-from university_data.core.source_models import SourceCurriculum, SourceProgram
+from university_data.core.source_models import (
+    SourceAdmissionRequirement,
+    SourceCurriculum,
+    SourceDepartment,
+    SourceFaculty,
+    SourceProgram,
+    SourceTeacher,
+    SourceTuition,
+)
+from university_data.domain.aliases import build_id_aliases
 from university_data.domain.ids import (
+    canonical_source_key,
     deterministic_source_keys,
     global_stable_id,
 )
@@ -28,12 +46,160 @@ from university_data.migrations import migrate_bmstu
 from university_data.ontology import build_ontology
 from university_data.pipeline import PipelineOptions, UniversityPipeline
 from university_data.quality import build_quality_report
-from university_data.resolvers import CreditsToHoursResolver, ResolverChain
+from university_data.resolvers import CreditsToHoursResolver, Resolution, ResolverChain
 from university_data.sources.xlsx import XlsxExtractor
+from university_data.storage import UniversityStorage
 from university_data.universities.bmstu.adapter.study_plans.semantic_source import (
     parse_source_curriculum,
 )
-from university_data.universities.hse.plugin import HseProgramsProvider
+from university_data.universities.hse.plugin import HsePlugin, HseProgramsProvider
+
+
+def _test_provenance(source_key: str) -> SourceProvenance:
+    return SourceProvenance(
+        source_page="https://hse.example/catalog",
+        detail_page="https://hse.example/catalog/item",
+        source_key=source_key,
+    )
+
+
+class _StaticProvider:
+    def __init__(self, capability: str, items: list[object]) -> None:
+        self.capability = capability
+        self.items = items
+
+    def fetch(self) -> list[object]:
+        return self.items
+
+
+class _HseCatalogClient:
+    def get_text(self, _url: str) -> str:
+        return (
+            '<a href="https://www.hse.ru/ba/analytics" class="e-card">'
+            '<div class="e-card__category">01.03.01 Математика</div>'
+            '<h3><span class="e-card__title-inner">Аналитика данных</span></h3>'
+            "</a>"
+        )
+
+
+class _HseFixedHoursResolver:
+    name = "hse_fixed_hours"
+
+    def resolve(self, _source: dict[str, object]) -> Resolution[int]:
+        return Resolution(42, "derived", self.name, 0.95)
+
+
+class _ExtendedHsePlugin(HsePlugin):
+    university_id = "hse"
+    display_name = "HSE extension fixture"
+
+    def capabilities(self) -> UniversityCapabilities:
+        return UniversityCapabilities(
+            programs=True,
+            curricula=True,
+            faculties=True,
+            departments=True,
+            admission=True,
+            tuition=True,
+            teachers=True,
+        )
+
+    def providers(self, options: PipelineOptions | None = None) -> UniversityProviders:
+        if options is None:
+            options = PipelineOptions()
+        program_key = "https://www.hse.ru/ba/analytics"
+        curriculum_key = f"{program_key}/curriculum"
+        return UniversityProviders(
+            programs=HseProgramsProvider(options, client=_HseCatalogClient()),
+            faculties=_StaticProvider(
+                "faculties",
+                [
+                    SourceFaculty(
+                        source_key="hse-faculty",
+                        name="Факультет компьютерных наук",
+                        provenance=_test_provenance("hse-faculty"),
+                    )
+                ],
+            ),
+            departments=_StaticProvider(
+                "departments",
+                [
+                    SourceDepartment(
+                        source_key="hse-department",
+                        name="Кафедра анализа данных",
+                        faculty_key="hse-faculty",
+                        provenance=_test_provenance("hse-department"),
+                    )
+                ],
+            ),
+            curricula=_StaticProvider(
+                "curricula",
+                [
+                    SourceCurriculum(
+                        source_key=curriculum_key,
+                        name="Учебный план аналитики данных",
+                        program_key=program_key,
+                        rows=(
+                            {
+                                "code": "MATH",
+                                "discipline": "Математический анализ",
+                                "semester": 1,
+                            },
+                        ),
+                        provenance=_test_provenance(curriculum_key),
+                    )
+                ],
+            ),
+            admission=_StaticProvider(
+                "admission",
+                [
+                    SourceAdmissionRequirement(
+                        source_key="hse-admission-math",
+                        subject="Математика",
+                        minimum_score=70,
+                        program_key=program_key,
+                        provenance=_test_provenance("hse-admission-math"),
+                    )
+                ],
+            ),
+            tuition=_StaticProvider(
+                "tuition",
+                [
+                    SourceTuition(
+                        source_key="hse-tuition-full-time",
+                        study_form="очная",
+                        value=450000,
+                        currency="RUB",
+                        term="2026",
+                        program_key=program_key,
+                        provenance=_test_provenance("hse-tuition-full-time"),
+                    )
+                ],
+            ),
+            teachers=_StaticProvider(
+                "teachers",
+                [
+                    SourceTeacher(
+                        source_key="hse-teacher-1",
+                        name="Иван Иванов",
+                        department_key="hse-department",
+                        provenance=_test_provenance("hse-teacher-1"),
+                    )
+                ],
+            ),
+        )
+
+    def resolver_specs(self, field: str) -> tuple[ResolverSpec, ...]:
+        return (ResolverSpec(type="hse_fixed_hours"),) if field == "total_hours" else ()
+
+    def resolver_builders(
+        self, field: str
+    ) -> Mapping[str, Callable[[ResolverSpec], object]]:
+        return (
+            {"hse_fixed_hours": lambda _spec: _HseFixedHoursResolver()}
+            if field == "total_hours"
+            else {}
+        )
 
 
 def test_global_ids_are_scoped_and_reorder_stable() -> None:
@@ -71,7 +237,11 @@ def test_provider_contract_rejects_wrong_dto_and_duplicate_source_key() -> None:
         capability = "programs"
 
         def fetch(self) -> list[SourceProgram]:
-            return [SourceProgram(source_key="same"), SourceProgram(source_key="same")]
+            provenance = _test_provenance("same")
+            return [
+                SourceProgram(source_key="same", provenance=provenance),
+                SourceProgram(source_key="same", provenance=provenance),
+            ]
 
     provider = DuplicateProvider()
     with pytest.raises(ProviderContractError, match="duplicate source_key"):
@@ -116,6 +286,17 @@ def test_quality_gate_reports_duplicate_canonical_ids() -> None:
     )
     assert report["verification"]["passed"] is False
     assert report["duplicates"] == {"programs": ["same-id"]}
+
+
+def test_quality_gate_rejects_empty_supported_capability() -> None:
+    report = build_quality_report(
+        "fake",
+        {"programs": True},
+        {"universities": []},
+    )
+    assert report["capability_status"]["programs"] == "not_published"
+    assert report["verification"]["passed"] is False
+    assert "produced no canonical records" in report["errors"][0]
 
 
 def test_quality_gate_reports_broken_links_explicitly() -> None:
@@ -389,11 +570,41 @@ def test_bmstu_raw_replay_migration_keeps_source_and_publishes_aliases(
         "slug": "migration-major",
         "name": "Migration major",
         "code": "01.03.01",
-        "faculties": [],
+        "faculties": [
+            {
+                "slug": "migration-faculty",
+                "title": "Migration faculty",
+                "chairs": [
+                    {
+                        "slug": "migration-chair",
+                        "title": "Migration chair",
+                        "educationalProgram": {
+                            "items": [{"code": "P-1", "name": "Migration program"}]
+                        },
+                    }
+                ],
+            }
+        ],
     }
     detail = {
         "additional": {"name": "Migration major", "code": "01.03.01"},
-        "chairs": {"items": []},
+        "chairs": {
+            "items": [
+                {
+                    "slug": "migration-chair",
+                    "title": "Migration chair",
+                    "faculty": {
+                        "slug": "migration-faculty",
+                        "title": "Migration faculty",
+                    },
+                    "educationalProgram": {
+                        "items": [{"code": "P-1", "name": "Migration program"}]
+                    },
+                }
+            ]
+        },
+        "points": [{"title": "Математика", "point": "40", "isChoice": False}],
+        "price": [{"studyForm": "очная", "term": "2026", "value": "100000"}],
     }
     (source / "raw/majors_list.json").write_text(
         json.dumps({"meta": {"count": 1}, "data": [summary]}), encoding="utf-8"
@@ -419,3 +630,431 @@ def test_bmstu_raw_replay_migration_keeps_source_and_publishes_aliases(
     aliases = json.loads((target / "id_aliases.json").read_text(encoding="utf-8"))
     assert aliases["schema_version"] == "2.0"
     assert (target / "canonical/programs.csv").is_file()
+
+
+def test_provider_contract_requires_real_locator_and_raw_lineage() -> None:
+    class MissingLocatorProvider:
+        capability = "programs"
+
+    missing_locator = SourceProgram(
+        source_key="program-1",
+        provenance=SourceProvenance(source_key="program-1"),
+    )
+    with pytest.raises(ProviderContractError, match="real source URL/page"):
+        validate_provider_output(
+            "programs", MissingLocatorProvider(), [missing_locator]
+        )
+
+    class MissingRawProvider:
+        capability = "programs"
+        persists_raw = True
+
+    missing_raw = SourceProgram(
+        source_key="program-1",
+        provenance=SourceProvenance(
+            source_page="https://hse.example/program-1", source_key="program-1"
+        ),
+    )
+    with pytest.raises(ProviderContractError, match="raw snapshot lineage"):
+        validate_provider_output("programs", MissingRawProvider(), [missing_raw])
+
+
+def test_url_source_ids_are_canonical_and_aliases_are_university_neutral(
+    tmp_path: Path,
+) -> None:
+    first = "HTTPS://EXAMPLE.COM:443/catalog/program/?b=2&a=1#fragment"
+    second = "https://example.com/catalog/program?a=1&b=2"
+    assert canonical_source_key(first) == second
+    assert global_stable_id("example", "program", first) == global_stable_id(
+        "example", "program", second
+    )
+    automatic_aliases = build_id_aliases(
+        {"programs": [{"id": "old-program", "provenance": {"source_key": first}}]},
+        {"programs": [{"id": "new-program", "provenance": {"source_key": second}}]},
+    )
+    assert automatic_aliases == [
+        {
+            "legacy_id": "old-program",
+            "canonical_id": "new-program",
+            "entity_type": "program",
+        }
+    ]
+
+    class AliasProvider:
+        capability = "programs"
+
+        def fetch(self) -> list[SourceProgram]:
+            return [
+                SourceProgram(
+                    source_key=second,
+                    name="Alias program",
+                    code="01.03.01",
+                    study_direction_key="01.03.01",
+                    legacy_ids=("legacy-program-1",),
+                    provenance=_test_provenance(second),
+                )
+            ]
+
+    class AliasPlugin:
+        university_id = "example"
+        display_name = "Example University"
+
+        def capabilities(self) -> UniversityCapabilities:
+            return UniversityCapabilities(programs=True)
+
+        def providers(self, _options: object | None = None) -> UniversityProviders:
+            return UniversityProviders(programs=AliasProvider())
+
+    registry = UniversityRegistry((AliasPlugin(),))
+    UniversityPipeline(registry).run(
+        "example", PipelineOptions(output_dir=tmp_path, strict=True)
+    )
+    storage = UniversityStorage(tmp_path, "example")
+    aliases = json.loads(
+        (storage.active_path() / "id_aliases.json").read_text(encoding="utf-8")
+    )
+    assert {item["legacy_id"] for item in aliases["aliases"]} == {"legacy-program-1"}
+
+    with TestClient(
+        create_app(ApiSettings(result_dir=tmp_path), registry=registry)
+    ) as client:
+        response = client.get(
+            "/api/v1/universities/example/datasets/programs/rows",
+            params={"id": "legacy-program-1"},
+        )
+    assert response.status_code == 200
+    assert response.json()["total"] == 1
+
+
+def test_quality_gate_preserves_last_valid_published_snapshot_on_source_error(
+    tmp_path: Path,
+) -> None:
+    class GatedProvider:
+        capability = "programs"
+        fail = False
+
+        def fetch(self) -> list[SourceProgram]:
+            if self.fail:
+                raise RuntimeError("source unavailable")
+            return [
+                SourceProgram(
+                    source_key="program-1",
+                    name="Published program",
+                    provenance=_test_provenance("program-1"),
+                )
+            ]
+
+    class GatedPlugin:
+        university_id = "gated"
+        display_name = "Gated University"
+
+        def __init__(self) -> None:
+            self.provider = GatedProvider()
+
+        def capabilities(self) -> UniversityCapabilities:
+            return UniversityCapabilities(programs=True)
+
+        def providers(self, _options: object | None = None) -> UniversityProviders:
+            return UniversityProviders(programs=self.provider)
+
+    plugin = GatedPlugin()
+    registry = UniversityRegistry((plugin,))
+    UniversityPipeline(registry).run(
+        "gated", PipelineOptions(output_dir=tmp_path, strict=True)
+    )
+    storage = UniversityStorage(tmp_path, "gated")
+    pointer_before = (storage.path / "current.json").read_text(encoding="utf-8")
+    programs_before = (storage.active_path() / "canonical/programs.jsonl").read_bytes()
+
+    plugin.provider.fail = True
+    with pytest.raises(RuntimeError, match="Quality gate failed"):
+        UniversityPipeline(registry).run(
+            "gated", PipelineOptions(output_dir=tmp_path, strict=True)
+        )
+
+    assert (storage.path / "current.json").read_text(encoding="utf-8") == pointer_before
+    assert (
+        storage.active_path() / "canonical/programs.jsonl"
+    ).read_bytes() == programs_before
+    staging = tmp_path / ".staging"
+    assert not staging.exists() or not list(staging.iterdir())
+
+
+def test_hse_can_extend_capabilities_and_serve_all_canonical_datasets(
+    tmp_path: Path,
+) -> None:
+    registry = UniversityRegistry((_ExtendedHsePlugin(),))
+    report = UniversityPipeline(registry).run(
+        "hse", PipelineOptions(output_dir=tmp_path, strict=True)
+    )
+    assert report["verification"]["passed"] is True
+
+    storage = UniversityStorage(tmp_path, "hse")
+    disciplines = [
+        json.loads(line)
+        for line in (storage.active_path() / "canonical/disciplines.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    ]
+    assert disciplines[0]["total_hours"] == 42
+    assert disciplines[0]["field_meta"]["total_hours"]["method"] == ("hse_fixed_hours")
+    directions = [
+        json.loads(line)
+        for line in (storage.active_path() / "canonical/study_directions.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    ]
+    assert directions[0]["name"] == "Математика"
+
+    canonical_datasets = (
+        "universities",
+        "faculties",
+        "departments",
+        "study_directions",
+        "programs",
+        "curricula",
+        "teachers",
+        "admission",
+        "admission_requirements",
+        "tuition_options",
+        "disciplines",
+        "semesters",
+        "semester_loads",
+    )
+    with TestClient(
+        create_app(ApiSettings(result_dir=tmp_path), registry=registry)
+    ) as client:
+        for dataset in canonical_datasets:
+            response = client.get(f"/api/v1/universities/hse/datasets/{dataset}/rows")
+            assert response.status_code == 200, (dataset, response.text)
+            assert response.json()["total"] > 0
+
+
+def test_hse_production_module_uses_manifest_and_capability_provider_set() -> None:
+    plugin = HsePlugin()
+    manifest = plugin.manifest()
+    providers = plugin.providers(PipelineOptions())
+    assert manifest.config_path is not None
+    assert manifest.config_path.name == "manifest.yaml"
+    assert manifest.capabilities_dict()["programs"] is True
+    assert manifest.capabilities_dict()["departments"] is False
+    assert set(providers) == {"programs"}
+
+
+def test_new_module_without_departments_keeps_optional_reference_unresolved(
+    tmp_path: Path,
+) -> None:
+    class ProgramsProvider:
+        capability = "programs"
+        persists_raw = False
+
+        def fetch(self) -> list[SourceProgram]:
+            return [
+                SourceProgram(
+                    source_key="https://minimal.example/programs/analytics",
+                    name="Аналитика данных",
+                    code="01.03.01",
+                    study_direction_key="01.03.01",
+                    department_key="missing-department",
+                    provenance=_test_provenance(
+                        "https://minimal.example/programs/analytics"
+                    ),
+                )
+            ]
+
+    class Operations:
+        def execute(self, request: object, result_dir: Path) -> dict[str, object]:
+            raise ValueError(f"unsupported operation: {request}")
+
+    class MinimalModule:
+        def manifest(self) -> UniversityManifest:
+            return UniversityManifest(
+                university_id="minimal",
+                display_name="Minimal University",
+                capabilities=(CapabilitySpec("programs", "enabled"),),
+                module_version="1.0.0",
+            )
+
+        def providers(self, options: object | None = None) -> ProviderSet:
+            return ProviderSet({"programs": ProgramsProvider()})
+
+        def resolvers(self) -> ResolverRegistry:
+            return ResolverRegistry()
+
+        def operations(self) -> Operations:
+            return Operations()
+
+    registry = UniversityRegistry((MinimalModule(),))
+    report = UniversityPipeline(registry).run(
+        "minimal", PipelineOptions(output_dir=tmp_path, strict=True)
+    )
+    assert report["verification"]["passed"] is True
+    assert report["capability_status"]["departments"] == "not_supported"
+    storage = UniversityStorage(tmp_path, "minimal")
+    assert not (storage.active_path() / "canonical/departments.jsonl").exists()
+    program = json.loads(
+        (storage.active_path() / "canonical/programs.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()[0]
+    )
+    assert program["department_id"] == ""
+    assert (
+        program["extensions"]["minimal"]["unresolved_references"]["department_key"]
+        == "missing-department"
+    )
+    assert report["capability_warnings"]["programs"]
+    assert report["capability_gaps"]["programs"][0]["code"] == (
+        "optional_relation_unresolved"
+    )
+    ontology = json.loads(
+        (storage.active_path() / "ontology.json").read_text(encoding="utf-8")
+    )
+    assert ontology["broken_links"] == []
+
+    with TestClient(
+        create_app(ApiSettings(result_dir=tmp_path), registry=registry)
+    ) as client:
+        response = client.get("/api/v1/universities/minimal/departments")
+    assert response.status_code == 404
+    assert response.json()["detail"]["code"] == "capability_unavailable"
+
+
+def test_new_module_can_publish_explicit_degraded_provider_result(
+    tmp_path: Path,
+) -> None:
+    class PartialProgramsProvider:
+        capability = "programs"
+        persists_raw = False
+
+        def fetch(self) -> ProviderResult[SourceProgram]:
+            source_key = "https://partial.example/programs/analytics"
+            return ProviderResult(
+                records=(
+                    SourceProgram(
+                        source_key=source_key,
+                        name="Аналитика данных",
+                        provenance=_test_provenance(source_key),
+                    ),
+                ),
+                complete=False,
+                warnings=("one catalog page was unavailable",),
+                gaps=(
+                    DataGap(
+                        code="page_unavailable",
+                        message="The second catalog page could not be fetched",
+                        source_key="https://partial.example/catalog?page=2",
+                    ),
+                ),
+            )
+
+    class Operations:
+        def execute(self, request: object, result_dir: Path) -> dict[str, object]:
+            raise ValueError(f"unsupported operation: {request}")
+
+    class PartialModule:
+        def manifest(self) -> UniversityManifest:
+            return UniversityManifest(
+                university_id="partial",
+                display_name="Partial University",
+                capabilities=(
+                    CapabilitySpec("programs", "enabled", allow_partial=True),
+                ),
+            )
+
+        def providers(self, options: object | None = None) -> ProviderSet:
+            return ProviderSet({"programs": PartialProgramsProvider()})
+
+        def resolver_specs(self, field: str) -> tuple[ResolverSpec, ...]:
+            return ()
+
+        def resolver_builders(
+            self, field: str
+        ) -> Mapping[str, Callable[[ResolverSpec], object]]:
+            return {}
+
+        def operations(self) -> Operations:
+            return Operations()
+
+    report = UniversityPipeline(UniversityRegistry((PartialModule(),))).run(
+        "partial", PipelineOptions(output_dir=tmp_path, strict=True)
+    )
+    assert report["verification"]["passed"] is True
+    assert report["capability_status"]["programs"] == "degraded"
+    assert report["capability_warnings"]["programs"] == [
+        "one catalog page was unavailable"
+    ]
+    assert report["capability_gaps"]["programs"][0]["code"] == "page_unavailable"
+    assert (UniversityStorage(tmp_path, "partial").path / "current.json").is_file()
+
+
+def test_manifest_modules_scale_without_cross_university_collisions(
+    tmp_path: Path,
+) -> None:
+    class Operations:
+        def execute(self, request: object, result_dir: Path) -> dict[str, object]:
+            raise ValueError(f"unsupported operation: {request}")
+
+    def make_module(index: int) -> object:
+        university_id = f"scale-{index:02d}"
+        source_key = f"https://scale.example/{university_id}/programs/analytics"
+
+        class ProgramsProvider:
+            capability = "programs"
+            persists_raw = False
+
+            def fetch(self) -> list[SourceProgram]:
+                return [
+                    SourceProgram(
+                        source_key=source_key,
+                        name="Аналитика данных",
+                        provenance=_test_provenance(source_key),
+                    )
+                ]
+
+        class Module:
+            def manifest(self) -> UniversityManifest:
+                return UniversityManifest(
+                    university_id=university_id,
+                    display_name=f"Scale University {index}",
+                    capabilities=(CapabilitySpec("programs", "enabled"),),
+                )
+
+            def providers(self, options: object | None = None) -> ProviderSet:
+                return ProviderSet({"programs": ProgramsProvider()})
+
+            def resolver_specs(self, field: str) -> tuple[ResolverSpec, ...]:
+                return ()
+
+            def resolver_builders(
+                self, field: str
+            ) -> Mapping[str, Callable[[ResolverSpec], object]]:
+                return {}
+
+            def operations(self) -> Operations:
+                return Operations()
+
+        return Module()
+
+    modules = tuple(make_module(index) for index in range(50))
+    registry = UniversityRegistry(modules)
+    assert len(registry.ids()) == 50
+
+    for university_id in registry.ids():
+        report = UniversityPipeline(registry).run(
+            university_id,
+            PipelineOptions(output_dir=tmp_path, strict=True),
+        )
+        assert report["verification"]["passed"] is True
+
+    program_ids = {
+        json.loads(
+            (
+                UniversityStorage(tmp_path, university_id).active_path()
+                / "canonical/programs.jsonl"
+            )
+            .read_text(encoding="utf-8")
+            .splitlines()[0]
+        )["id"]
+        for university_id in registry.ids()
+    }
+    assert len(program_ids) == 50

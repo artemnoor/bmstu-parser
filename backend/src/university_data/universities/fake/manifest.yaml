@@ -1,0 +1,15 @@
+module_version: "1.0.0"
+university_id: fake
+display_name: Fake University
+capabilities:
+  programs: true
+  curricula: true
+  faculties: false
+  departments: false
+  admission: true
+  tuition: false
+  teachers: true
+resolvers:
+  total_hours: []
+settings:
+  source_format: fixtures

@@ -2,12 +2,19 @@ from __future__ import annotations
 
 import json
 import tempfile
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
 from ...core.capabilities import UniversityCapabilities
 from ...core.config import ResolverSpec, load_plugin_config
-from ...core.plugin import UniversityConfig, UniversityOperations, UniversityProviders
+from ...core.plugin import (
+    ResolverRegistry,
+    UniversityConfig,
+    UniversityManifest,
+    UniversityOperations,
+    UniversityProviders,
+)
 from ...core.source_models import (
     SourceAdmissionRequirement,
     SourceCurriculum,
@@ -21,11 +28,16 @@ ROOT = Path(__file__).parent
 
 
 def _provenance(source_key: str, path: str) -> SourceProvenance:
-    return SourceProvenance(raw_snapshot_path=path, source_key=source_key)
+    return SourceProvenance(
+        source_page=f"file:///{path}",
+        raw_snapshot_path=path,
+        source_key=source_key,
+    )
 
 
 class FakeProgramsProvider:
     capability = "programs"
+    persists_raw = True
 
     def fetch(self) -> list[SourceProgram]:
         payload = json.loads(
@@ -48,6 +60,7 @@ class FakeProgramsProvider:
 
 class FakeTeachersProvider:
     capability = "teachers"
+    persists_raw = True
 
     def fetch(self) -> list[SourceTeacher]:
         payload = json.loads(
@@ -81,6 +94,7 @@ class FakeTeachersProvider:
 
 class FakeAdmissionProvider:
     capability = "admission"
+    persists_raw = True
 
     def fetch(self) -> list[SourceAdmissionRequirement]:
         return [
@@ -98,6 +112,7 @@ class FakeAdmissionProvider:
 
 class FakeCurriculumProvider:
     capability = "curricula"
+    persists_raw = True
 
     def __init__(self) -> None:
         self.extractor = XlsxExtractor()
@@ -144,8 +159,21 @@ class FakeUniversityPlugin:
     display_name = "Fake University"
 
     def capabilities(self) -> UniversityCapabilities:
-        config = load_plugin_config(ROOT / "config.yaml")
+        config = load_plugin_config(ROOT / "manifest.yaml")
         return UniversityCapabilities(**config.capabilities)
+
+    def manifest(self) -> UniversityManifest:
+        config = load_plugin_config(ROOT / "manifest.yaml")
+        return UniversityManifest(
+            university_id=config.university_id,
+            display_name=config.display_name,
+            capabilities=UniversityCapabilities(**config.capabilities).specs(
+                allow_partial=config.allow_partial
+            ),
+            module_version=config.module_version,
+            config_path=ROOT / "manifest.yaml",
+            settings=config.settings,
+        )
 
     def providers(self, options: object | None = None) -> UniversityProviders:
         return UniversityProviders(
@@ -155,18 +183,27 @@ class FakeUniversityPlugin:
             teachers=FakeTeachersProvider(),
         )
 
+    def resolvers(self) -> ResolverRegistry:
+        config = load_plugin_config(ROOT / "manifest.yaml")
+        return ResolverRegistry(specs=config.resolvers)
+
     def config(self) -> UniversityConfig:
-        config = load_plugin_config(ROOT / "config.yaml")
+        config = load_plugin_config(ROOT / "manifest.yaml")
         return UniversityConfig(
             university_id=config.university_id,
             display_name=config.display_name,
-            config_path=ROOT / "config.yaml",
+            config_path=ROOT / "manifest.yaml",
             settings=config.settings,
         )
 
     def resolver_specs(self, field: str) -> tuple[ResolverSpec, ...]:
-        config = load_plugin_config(ROOT / "config.yaml")
+        config = load_plugin_config(ROOT / "manifest.yaml")
         return config.resolvers.get(field, ())
+
+    def resolver_builders(
+        self, field: str
+    ) -> Mapping[str, Callable[[ResolverSpec], Any]]:
+        return {}
 
     def operations(self) -> UniversityOperations:
         return _UnsupportedOperations()

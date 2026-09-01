@@ -20,7 +20,7 @@ class JobStore(Protocol):
 
     def update(self, identifier: str, **changes: Any) -> None: ...
 
-    def active(self) -> dict[str, Any] | None: ...
+    def active(self, university_id: str | None = None) -> dict[str, Any] | None: ...
 
     def prune(self) -> None: ...
 
@@ -52,12 +52,16 @@ class InMemoryJobStore:
             if identifier in self._records:
                 self._records[identifier].update(deepcopy(changes))
 
-    def active(self) -> dict[str, Any] | None:
+    def active(self, university_id: str | None = None) -> dict[str, Any] | None:
         with self._lock:
             active = [
                 record
                 for record in self._records.values()
                 if record["status"] in {"queued", "running"}
+                and (
+                    university_id is None
+                    or record.get("university_id", "") == university_id
+                )
             ]
             if not active:
                 return None
@@ -133,6 +137,7 @@ class SqliteJobStore:
             """
             CREATE TABLE IF NOT EXISTS operations (
                 id TEXT PRIMARY KEY,
+                university_id TEXT NOT NULL DEFAULT '',
                 operation TEXT NOT NULL,
                 status TEXT NOT NULL,
                 submitted_at_utc TEXT NOT NULL,
@@ -143,8 +148,24 @@ class SqliteJobStore:
             )
             """
         )
+        columns = {
+            str(row["name"])
+            for row in self._connection.execute("PRAGMA table_info(operations)")
+        }
+        if "university_id" not in columns:
+            self._connection.execute(
+                "ALTER TABLE operations ADD COLUMN university_id TEXT NOT NULL DEFAULT ''"
+            )
         self._connection.commit()
         self._recover_interrupted()
+        self._connection.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS operations_one_active_per_university
+            ON operations(university_id)
+            WHERE status IN ('queued', 'running')
+            """
+        )
+        self._connection.commit()
         self.prune()
 
     @staticmethod
@@ -157,6 +178,7 @@ class SqliteJobStore:
                 result = None
         return {
             "id": row["id"],
+            "university_id": row["university_id"],
             "operation": row["operation"],
             "status": row["status"],
             "submitted_at_utc": row["submitted_at_utc"],
@@ -185,12 +207,13 @@ class SqliteJobStore:
             self._connection.execute(
                 """
                 INSERT INTO operations
-                    (id, operation, status, submitted_at_utc, started_at_utc,
+                    (id, university_id, operation, status, submitted_at_utc, started_at_utc,
                      finished_at_utc, result_json, error)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     record["id"],
+                    record.get("university_id", ""),
                     record["operation"],
                     record["status"],
                     record["submitted_at_utc"],
@@ -236,11 +259,15 @@ class SqliteJobStore:
             )
             self._connection.commit()
 
-    def active(self) -> dict[str, Any] | None:
+    def active(self, university_id: str | None = None) -> dict[str, Any] | None:
         with self._lock:
-            row = self._connection.execute(
-                "SELECT * FROM operations WHERE status IN ('queued', 'running') ORDER BY submitted_at_utc LIMIT 1"
-            ).fetchone()
+            query = "SELECT * FROM operations WHERE status IN ('queued', 'running') "
+            parameters: tuple[str, ...] = ()
+            if university_id is not None:
+                query += "AND university_id = ? "
+                parameters = (university_id,)
+            query += "ORDER BY submitted_at_utc LIMIT 1"
+            row = self._connection.execute(query, parameters).fetchone()
             return self._decode(row) if row else None
 
     def prune(self) -> None:

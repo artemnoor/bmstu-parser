@@ -6,11 +6,49 @@ import re
 import unicodedata
 from collections.abc import Callable, Iterable
 from typing import Any, TypeVar
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 
 def normalize_key(value: Any) -> str:
-    text = unicodedata.normalize("NFKC", str(value or ""))
+    text = unicodedata.normalize("NFKC", str("" if value is None else value))
     return re.sub(r"\s+", " ", text).strip().casefold()
+
+
+def canonical_source_key(value: Any) -> str:
+    """Normalize URL source keys without changing non-URL business keys."""
+
+    text = unicodedata.normalize("NFKC", str("" if value is None else value)).strip()
+    parsed = urlsplit(text)
+    if parsed.scheme.casefold() not in {"http", "https"} or not parsed.netloc:
+        return normalize_key(text)
+
+    hostname = parsed.hostname.casefold() if parsed.hostname else ""
+    try:
+        port = parsed.port
+    except ValueError:
+        return normalize_key(text)
+    netloc = hostname
+    if parsed.username or parsed.password:
+        credentials = f"{parsed.username or ''}:{parsed.password or ''}@"
+        netloc = credentials + netloc
+    if port and not (
+        (parsed.scheme.casefold() == "http" and port == 80)
+        or (parsed.scheme.casefold() == "https" and port == 443)
+    ):
+        netloc = f"{netloc}:{port}"
+    path = parsed.path or "/"
+    if path != "/":
+        path = path.rstrip("/")
+    query = urlencode(sorted(parse_qsl(parsed.query, keep_blank_values=True)))
+    return urlunsplit((parsed.scheme.casefold(), netloc, path, query, ""))
+
+
+def _stable_part(value: Any) -> str:
+    text = str("" if value is None else value)
+    parsed = urlsplit(text.strip())
+    if parsed.scheme.casefold() in {"http", "https"} and parsed.netloc:
+        return canonical_source_key(text)
+    return normalize_key(value)
 
 
 def global_stable_id(university_id: str, entity_type: str, *parts: Any) -> str:
@@ -20,7 +58,7 @@ def global_stable_id(university_id: str, entity_type: str, *parts: Any) -> str:
     kind = normalize_key(entity_type).replace(" ", "_")
     if not university or not kind:
         raise ValueError("university_id and entity_type are required")
-    natural_key = "|".join(normalize_key(part) for part in parts)
+    natural_key = "|".join(_stable_part(part) for part in parts)
     digest = hashlib.sha256(f"{university}|{kind}|{natural_key}".encode()).hexdigest()[
         :24
     ]
@@ -44,7 +82,7 @@ def deterministic_source_keys(
     items = list(records)
     entries: list[tuple[int, tuple[str, ...], str]] = []
     for index, record in enumerate(items):
-        business_key = tuple(normalize_key(value) for value in key(record))
+        business_key = tuple(_stable_part(value) for value in key(record))
         if not any(business_key):
             raise ValueError("A stable source key requires a non-empty business key")
         signature = json.dumps(
@@ -96,7 +134,7 @@ def deterministic_record_ids(
     items = list(records)
     entries = []
     for index, record in enumerate(items):
-        business_key = tuple(normalize_key(value) for value in key(record))
+        business_key = tuple(_stable_part(value) for value in key(record))
         signature = json.dumps(record, ensure_ascii=False, sort_keys=True, default=str)
         entries.append((index, business_key, signature))
     groups: dict[tuple[str, ...], list[tuple[int, str]]] = {}
@@ -123,7 +161,7 @@ def deterministic_record_ids(
     aliases = [
         None
         if legacy_key is None
-        else "|".join(normalize_key(value) for value in legacy_key(record, index))
+        else "|".join(_stable_part(value) for value in legacy_key(record, index))
         for index, record in enumerate(items)
     ]
     return list(zip(identifiers, aliases, strict=True))

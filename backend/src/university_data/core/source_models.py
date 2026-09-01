@@ -13,6 +13,7 @@ class SourceRecord:
     raw: dict[str, Any] = field(default_factory=dict)
     provenance: SourceProvenance = field(default_factory=SourceProvenance)
     extensions: dict[str, Any] = field(default_factory=dict)
+    legacy_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

@@ -2,9 +2,17 @@ from __future__ import annotations
 
 import csv
 import json
+import sqlite3
 from pathlib import Path
+from threading import Event
 
-from university_data.api.job_store import SqliteJobStore
+import pytest
+from fastapi.testclient import TestClient
+
+from university_data.api.app import create_app
+from university_data.api.config import ApiSettings
+from university_data.api.job_store import InMemoryJobStore, SqliteJobStore
+from university_data.api.jobs import JobManager, OperationConflictError
 from university_data.domain.ids import deterministic_record_ids
 from university_data.universities.bmstu.adapter.domain.ids import (
     stable_id as legacy_stable_id,
@@ -142,6 +150,104 @@ def test_sqlite_store_recovers_interrupted_operation(tmp_path: Path) -> None:
     assert record["status"] == "failed"
     assert "перезапуском" in record["error"]
     restarted.close()
+
+
+def test_operations_are_scoped_per_university() -> None:
+    manager = JobManager(store=InMemoryJobStore(), max_workers=2)
+    started = Event()
+    release = Event()
+
+    def long_task() -> dict[str, str]:
+        started.set()
+        release.wait(timeout=5)
+        return {"university_id": "alpha"}
+
+    try:
+        alpha = manager.submit("refresh", long_task, university_id="alpha")
+        assert started.wait(timeout=5)
+        beta = manager.submit(
+            "refresh", lambda: {"university_id": "beta"}, university_id="beta"
+        )
+        with pytest.raises(OperationConflictError):
+            manager.submit("refresh", dict, university_id="alpha")
+        assert alpha["university_id"] == "alpha"
+        assert beta["university_id"] == "beta"
+    finally:
+        release.set()
+        manager.shutdown()
+
+    assert manager.get(alpha["id"])["status"] == "succeeded"
+    assert manager.get(beta["id"])["status"] == "succeeded"
+
+
+def test_sqlite_store_enforces_one_active_operation_per_university(
+    tmp_path: Path,
+) -> None:
+    store = SqliteJobStore(tmp_path / "operations.sqlite3")
+    record = {
+        "id": "alpha-1",
+        "university_id": "alpha",
+        "operation": "refresh",
+        "status": "queued",
+        "submitted_at_utc": "2026-01-01T00:00:00+00:00",
+        "started_at_utc": None,
+        "finished_at_utc": None,
+        "result": None,
+        "error": None,
+    }
+    try:
+        store.create(record)
+        assert store.active("alpha")["id"] == "alpha-1"
+        assert store.active("beta") is None
+        with pytest.raises(sqlite3.IntegrityError):
+            store.create({**record, "id": "alpha-2"})
+    finally:
+        store.close()
+
+
+def test_api_does_not_expose_an_operation_to_another_university(
+    tmp_path: Path,
+) -> None:
+    manager = JobManager(store=InMemoryJobStore(), max_workers=2)
+    started = Event()
+    release = Event()
+
+    def executor(*_args: object) -> dict[str, str]:
+        started.set()
+        release.wait(timeout=5)
+        return {"university_id": "fake"}
+
+    try:
+        with TestClient(
+            create_app(
+                ApiSettings(result_dir=tmp_path),
+                job_manager=manager,
+                operation_executor=executor,
+            )
+        ) as client:
+            response = client.post(
+                "/api/v1/universities/fake/operations",
+                json={"operation": "refresh"},
+            )
+            assert response.status_code == 202
+            operation_id = response.json()["id"]
+            assert started.wait(timeout=5)
+            assert (
+                client.get(
+                    f"/api/v1/universities/hse/operations/{operation_id}"
+                ).status_code
+                == 404
+            )
+            assert (
+                client.get(
+                    f"/api/v1/universities/fake/operations/{operation_id}"
+                ).status_code
+                == 200
+            )
+            release.set()
+    finally:
+        release.set()
+        manager.shutdown()
 
 
 def test_semantic_facade_runs_full_curriculum_projection(tmp_path: Path) -> None:

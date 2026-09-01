@@ -15,6 +15,7 @@ class ApiSettings:
     environment: str = "development"
     operation_max_records: int = 1000
     operation_ttl_seconds: int = 30 * 24 * 60 * 60
+    operation_workers: int = 4
 
     @property
     def is_production(self) -> bool:
@@ -22,10 +23,8 @@ class ApiSettings:
 
     @classmethod
     def from_env(cls) -> ApiSettings:
-        environment = os.getenv("UNIVERSITY_ENV", os.getenv("BMSTU_ENV", "development"))
-        configured = os.getenv(
-            "UNIVERSITY_CORS_ORIGINS", os.getenv("BMSTU_CORS_ORIGINS", "")
-        )
+        environment = os.getenv("UNIVERSITY_ENV", "development")
+        configured = os.getenv("UNIVERSITY_CORS_ORIGINS", "")
         if configured.strip():
             origins = tuple(
                 item.strip() for item in configured.split(",") if item.strip()
@@ -35,19 +34,10 @@ class ApiSettings:
         else:
             origins = ()
         return cls(
-            result_dir=Path(
-                os.getenv(
-                    "UNIVERSITY_RESULT_DIR",
-                    os.getenv("BMSTU_RESULT_DIR", "data/result"),
-                )
-            ),
-            host=os.getenv(
-                "UNIVERSITY_API_HOST", os.getenv("BMSTU_API_HOST", "127.0.0.1")
-            ),
-            port=int(
-                os.getenv("UNIVERSITY_API_PORT", os.getenv("BMSTU_API_PORT", "8000"))
-            ),
-            api_key=os.getenv("UNIVERSITY_API_KEY", os.getenv("BMSTU_API_KEY", "")),
+            result_dir=Path(os.getenv("UNIVERSITY_RESULT_DIR", "data/result")),
+            host=os.getenv("UNIVERSITY_API_HOST", "127.0.0.1"),
+            port=int(os.getenv("UNIVERSITY_API_PORT", "8000")),
+            api_key=os.getenv("UNIVERSITY_API_KEY", ""),
             cors_origins=origins,
             environment=environment,
             operation_max_records=max(
@@ -60,5 +50,8 @@ class ApiSettings:
                         "UNIVERSITY_OPERATION_TTL_SECONDS", str(30 * 24 * 60 * 60)
                     )
                 ),
+            ),
+            operation_workers=max(
+                1, min(32, int(os.getenv("UNIVERSITY_OPERATION_WORKERS", "4")))
             ),
         )

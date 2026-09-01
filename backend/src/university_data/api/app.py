@@ -12,7 +12,10 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 
 from .. import __version__
+from ..core.capability_registry import dataset_capabilities
+from ..core.plugin import manifest_for_plugin
 from ..registry import REGISTRY
+from ..storage import UniversityStorage
 from .config import ApiSettings
 from .job_store import SqliteJobStore
 from .jobs import JobManager, OperationConflictError
@@ -27,19 +30,7 @@ from .operations import execute_operation
 from .repository import DatasetNotFoundError, DatasetRepository, DatasetUnavailableError
 
 SERVICE_NAME = "university-data-api"
-DATASET_CAPABILITIES = {
-    "programs": "programs",
-    "study_directions": "programs",
-    "curricula": "curricula",
-    "faculties": "faculties",
-    "departments": "departments",
-    "admission": "admission",
-    "admission_requirements": "admission",
-    "tuition_options": "tuition",
-    "teachers": "teachers",
-    "semantic_disciplines": "curricula",
-    "semantic_semester_loads": "curricula",
-}
+DATASET_CAPABILITIES = dataset_capabilities()
 OPERATION_CAPABILITIES = {
     "extract_study_plans": "curricula",
     "extract_semantics": "curricula",
@@ -62,7 +53,8 @@ def create_app(
             api_settings.result_dir / "_operations.sqlite3",
             max_records=api_settings.operation_max_records,
             ttl_seconds=api_settings.operation_ttl_seconds,
-        )
+        ),
+        max_workers=api_settings.operation_workers,
     )
     owns_jobs = job_manager is None
 
@@ -114,7 +106,8 @@ def create_app(
 
     def require_capability(university_id: str, capability: str) -> Any:
         plugin = plugin_for(university_id)
-        if not plugin.capabilities().supports(capability):
+        manifest = manifest_for_plugin(plugin)
+        if not manifest.capabilities_dict().get(capability, False):
             raise HTTPException(
                 status_code=404,
                 detail={
@@ -127,16 +120,28 @@ def create_app(
 
     def repository_for(university_id: str) -> DatasetRepository:
         plugin = plugin_for(university_id)
-        return DatasetRepository(api_settings.result_dir, plugin.university_id)
+        return DatasetRepository(
+            api_settings.result_dir, manifest_for_plugin(plugin).university_id
+        )
+
+    def operation_status(university_id: str, record: dict[str, Any]) -> OperationStatus:
+        payload = dict(record)
+        payload.pop("university_id", None)
+        return OperationStatus(university_id=university_id, **payload)
 
     def capability_status(plugin: Any) -> dict[str, str]:
-        capabilities = plugin.capabilities().as_dict()
+        manifest = manifest_for_plugin(plugin)
+        capabilities = manifest.capabilities_dict()
         result = {
-            key: "published" if value else "not_supported"
+            key: "not_published" if value else "not_supported"
             for key, value in capabilities.items()
         }
         report_path = (
-            api_settings.result_dir / plugin.university_id / "quality" / "report.json"
+            UniversityStorage(
+                api_settings.result_dir, manifest.university_id
+            ).active_path()
+            / "quality"
+            / "report.json"
         )
         try:
             report = json.loads(report_path.read_text(encoding="utf-8"))
@@ -180,7 +185,10 @@ def create_app(
     @app.get("/health")
     def health() -> dict[str, Any]:
         ready = any(
-            (api_settings.result_dir / item / "quality/report.json").is_file()
+            (
+                UniversityStorage(api_settings.result_dir, item).active_path()
+                / "quality/report.json"
+            ).is_file()
             for item in registry.ids()
         )
         return {
@@ -199,13 +207,15 @@ def create_app(
     def universities() -> list[UniversityDescriptor]:
         result = []
         for plugin in registry:
-            capabilities = plugin.capabilities().as_dict()
-            path = api_settings.result_dir / plugin.university_id
+            manifest = manifest_for_plugin(plugin)
+            path = UniversityStorage(
+                api_settings.result_dir, manifest.university_id
+            ).active_path()
             result.append(
                 UniversityDescriptor(
-                    university_id=plugin.university_id,
-                    display_name=plugin.display_name,
-                    capabilities=capabilities,
+                    university_id=manifest.university_id,
+                    display_name=manifest.display_name,
+                    capabilities=manifest.capabilities_dict(),
                     capability_status=capability_status(plugin),
                     data_ready=(path / "quality/report.json").is_file()
                     or (path / "parse_report.json").is_file(),
@@ -220,12 +230,14 @@ def create_app(
     )
     def university(university_id: str) -> UniversityDescriptor:
         plugin = plugin_for(university_id)
-        capabilities = plugin.capabilities().as_dict()
-        path = api_settings.result_dir / plugin.university_id
+        manifest = manifest_for_plugin(plugin)
+        path = UniversityStorage(
+            api_settings.result_dir, manifest.university_id
+        ).active_path()
         return UniversityDescriptor(
-            university_id=plugin.university_id,
-            display_name=plugin.display_name,
-            capabilities=capabilities,
+            university_id=manifest.university_id,
+            display_name=manifest.display_name,
+            capabilities=manifest.capabilities_dict(),
             capability_status=capability_status(plugin),
             data_ready=(path / "quality/report.json").is_file()
             or (path / "parse_report.json").is_file(),
@@ -421,6 +433,7 @@ def create_app(
         _access: None = Depends(require_write_access),
     ) -> OperationStatus:
         plugin = plugin_for(university_id)
+        manifest = manifest_for_plugin(plugin)
         operation_capability = OPERATION_CAPABILITIES.get(request.operation)
         if operation_capability:
             require_capability(university_id, operation_capability)
@@ -428,12 +441,13 @@ def create_app(
             record = jobs.submit(
                 request.operation,
                 lambda: operation_executor(
-                    request, api_settings.result_dir, plugin.university_id, registry
+                    request, api_settings.result_dir, manifest.university_id, registry
                 ),
+                university_id=manifest.university_id,
             )
         except OperationConflictError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
-        return OperationStatus(university_id=plugin.university_id, **record)
+        return operation_status(manifest.university_id, record)
 
     @app.get(
         "/api/v1/universities/{university_id}/operations/{operation_id}",
@@ -442,20 +456,25 @@ def create_app(
     )
     def operation(university_id: str, operation_id: str) -> OperationStatus:
         plugin = plugin_for(university_id)
+        manifest = manifest_for_plugin(plugin)
         record = jobs.get(operation_id)
         if record is None:
             raise HTTPException(
                 status_code=404, detail=f"Operation not found: {operation_id}"
             )
-        result = record.get("result")
-        if isinstance(result, dict) and result.get("university_id") not in {
-            None,
-            plugin.university_id,
-        }:
+        record_university_id = str(record.get("university_id", "")).strip()
+        if not record_university_id:
+            result = record.get("result")
+            record_university_id = (
+                str(result.get("university_id", "")).strip()
+                if isinstance(result, dict)
+                else ""
+            )
+        if record_university_id != manifest.university_id:
             raise HTTPException(
                 status_code=404, detail=f"Operation not found: {operation_id}"
             )
-        return OperationStatus(university_id=plugin.university_id, **record)
+        return operation_status(manifest.university_id, record)
 
     return app
 

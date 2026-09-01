@@ -96,7 +96,7 @@ def _docling_text(data: dict[str, Any]) -> str:
 
 
 class DoclingDocumentReader:
-    """Optional Docling adapter mapped back to BMSTU's cell-level contract.
+    """Optional Docling adapter mapped back to the platform's cell-level contract.
 
     Docling is intentionally not the semantic authority. Its structured
     document is converted into our pages/tables/rows/cells shape; current
